@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
-    "puppeteer": "^2.0.0"
+    "p-limit": "^2.2.1",
+    "puppeteer": "^2.0.0",
+    "string-format": "^2.0.0"
   },
   "devDependencies": {},
   "scripts": {
