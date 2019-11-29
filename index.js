@@ -3,14 +3,16 @@ const limit = pLimit(2); //TODO: Change this to be based on cpu cores
 const puppeteer = require('puppeteer');
 const CREDS = require('./secrets/creds');
 const SECTIONS = require('./secrets/sections');
-const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0';
+const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/time_tracking';
 const format = require('string-format');
+const jsdom = require("jsdom");
+const { JSDOM } = jsdom;
 
 console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
-if(arr_args.length === 0){
-    arr_args = [ '11/22/19', '11:11', '2', 'Mindsets', 'Short Stack', '2', 'm0', 's0' ];
+if (arr_args.length === 0) {
+    arr_args = ['11/22/19', '11:11', '2', 'Mindsets', 'Short Stack', '2', 'm0', 's0'];
 }
 
 // console.log('arguments', arr_args);
@@ -18,13 +20,13 @@ if(arr_args.length === 0){
 let arr_dueDate = arr_args[0].split('/');
 let arr_dueTime = arr_args[1].split(':');
 
-let date_dueDate = new Date((arr_dueDate[2].length !== 4 ? 2000 + (+arr_dueDate[2]): +arr_dueDate[2]),
+let date_dueDate = new Date((arr_dueDate[2].length !== 4 ? 2000 + (+arr_dueDate[2]) : +arr_dueDate[2]),
     +arr_dueDate[0], +arr_dueDate[1], +arr_dueTime[0], +arr_dueTime[0], 0, 0);
 
 let assignmentsCount = +arr_args[2];
 let arr_assignments = [];
-for(let i = 0; i < assignmentsCount; i ++){
-    arr_assignments.push(arr_args[3 + i]);
+for (let i = 0; i < assignmentsCount; i++) {
+    arr_assignments.push(arr_args[3 + i].toString().toLowerCase());
 }
 
 let arr_objs_classes = [];
@@ -35,21 +37,27 @@ for (let i = 0; i < teachersCount; i++) {
     let teacherName = SECTIONS[teacherInitial].name;
     let teacherStr = rawTeacherStr.substring(1);
     teacherStr.trim().split('').forEach(char => {
-        if(char === '0'){
+        if (char === '0') {
             //0 --> All classes
-            for(let classNum in SECTIONS[teacherInitial].classes) {
+            for (let classNum in SECTIONS[teacherInitial].classes) {
                 if (!SECTIONS[teacherInitial].classes.hasOwnProperty(classNum)) continue;
                 let obj_todo = {
-                    teacherName : teacherName,
-                    url: format(TEMPLATE_HOME_URL, SECTIONS[teacherInitial].id, SECTIONS[teacherInitial].classes[classNum])
+                    teacherName: teacherName,
+                    url: format(TEMPLATE_HOME_URL, SECTIONS[teacherInitial].id, SECTIONS[teacherInitial].classes[classNum]),
+                    classNum: classNum,
+                    sectionId: SECTIONS[teacherInitial].id,
+                    classId: SECTIONS[teacherInitial].classes[classNum]
                 };
                 arr_objs_classes.push(obj_todo);
             }
-        }else{
+        } else {
             let classNum = +char;
             let obj_todo = {
-                teacherName : teacherName,
-                url: format(TEMPLATE_HOME_URL, SECTIONS[teacherInitial].id, SECTIONS[teacherInitial].classes[classNum])
+                teacherName: teacherName,
+                url: format(TEMPLATE_HOME_URL, SECTIONS[teacherInitial].id, SECTIONS[teacherInitial].classes[classNum]),
+                classNum: classNum,
+                sectionId: SECTIONS[teacherInitial].id,
+                classId: SECTIONS[teacherInitial].classes[classNum]
             };
             arr_objs_classes.push(obj_todo);
         }
@@ -61,7 +69,7 @@ console.info(arr_assignments);
 
 start().then();
 
-async function start(){
+async function start() {
     const browser = await puppeteer.launch({
         headless: false
     });
@@ -82,28 +90,68 @@ async function start(){
 
     await page.waitForNavigation();
 
+    //Grab all assignment IDs
+    await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress', arr_objs_classes[0].sectionId, arr_objs_classes[0].classId), {waitUntil: 'networkidle2', timeout: 0});
+    await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
 
-    let temp = arr_objs_classes.slice(5); //TODO: Change this to actual array
-    let input = [];
-    temp.forEach(obj => {
-        input.push(parsePage(obj, page))
-    });
-
-    (async () => {
-        // Only one promise is run at once
-        const result = await Promise.all(input);
-        console.log(result);
-    })();
-
-    await browser.close();
+    let arr_assignmentsCopy = arr_assignments.slice();
+    let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy)=>{
+        console.info(arr_assignmentsCopy);
+        let arr_IDs = [];
+        let children_possibleNodes = document.getElementsByClassName('activity-item');
+        for (let i = 0; i < children_possibleNodes.length; i++) {
+            if(children_possibleNodes[i].getAttribute('data-original-title')){
+                let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+                for (let j = 0; j < arr_assignmentsCopy.length; j++) {
+                    if(str.includes(arr_assignmentsCopy[j])){
+                        //got one assignment
+                        arr_IDs.push(children_possibleNodes[i].children[0].href);
+                        arr_assignmentsCopy.splice(j, 1);
+                        break;
+                    }
+                }
+                if(arr_assignmentsCopy.length === 0){
+                    //got all assignments needed
+                    break;
+                }
+            }
+        }
+        return arr_IDs;
+    }, arr_assignmentsCopy);
+    console.info(arr_assignmentIDs);
+    //
+    // let temp = arr_objs_classes.slice(5); //TODO: Delete this in prod
+    // let input = [];
+    // temp.forEach(obj => {
+    //     input.push(parsePageForTimeSpent(obj, browser))
+    // });
+    //
+    // const result = await Promise.all(input);
+    // console.log(result);
+    //
+    // await browser.close();
 }
 
 
-async function parsePage(obj, page){
-    return new Promise(async(resolve, reject) => {
+async function parsePageForTimeSpent(obj, browser) {
+    return new Promise(async (resolve, reject) => {
+        const page = await browser.newPage();
+        await page.goto(obj.url, {waitUntil: 'networkidle2', timeout: 0});
+        await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+        await setTimeout(()=>{}, 1000);
+        await page.evaluate(
+            (arr_assignments)=>{
+                let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
 
 
-        resolve(obj);
+                return (table.childElementCount);
+            }, arr_assignments
+        ).then(res => {
+            console.info(res);
+        });
+
+
+        resolve('done ' + obj.teacherName + ' p' + obj.classNum);
     })
 }
