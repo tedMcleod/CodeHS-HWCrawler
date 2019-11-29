@@ -91,61 +91,72 @@ async function start() {
     await page.waitForNavigation();
 
     //Grab all assignment IDs
-    await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress', arr_objs_classes[0].sectionId, arr_objs_classes[0].classId), {waitUntil: 'networkidle2', timeout: 0});
-    await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+    // await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress', arr_objs_classes[0].sectionId, arr_objs_classes[0].classId), {waitUntil: 'networkidle2', timeout: 0});
+    // await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+    //
+    // let arr_assignmentsCopy = arr_assignments.slice();
+    // let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy)=>{
+    //     console.info(arr_assignmentsCopy);
+    //     let arr_IDs = [];
+    //     let children_possibleNodes = document.getElementsByClassName('activity-item');
+    //     for (let i = 0; i < children_possibleNodes.length; i++) {
+    //         if(children_possibleNodes[i].getAttribute('data-original-title')){
+    //             let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+    //             for (let j = 0; j < arr_assignmentsCopy.length; j++) {
+    //                 if(str.includes(arr_assignmentsCopy[j])){
+    //                     //got one assignment
+    //                     arr_IDs.push({name: arr_assignmentsCopy[j], url: children_possibleNodes[i].children[0].href});
+    //                     arr_assignmentsCopy.splice(j, 1);
+    //                     break;
+    //                 }
+    //             }
+    //             if(arr_assignmentsCopy.length === 0){
+    //                 //got all assignments needed
+    //                 break;
+    //             }
+    //         }
+    //     }
+    //     return arr_IDs;
+    // }, arr_assignmentsCopy);
+    // for (let i = 0; i < arr_assignmentIDs.length; i++) {
+    //     let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
+    //     arr_assignmentIDs[i] = temp_split[6];
+    // }
 
-    let arr_assignmentsCopy = arr_assignments.slice();
-    let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy)=>{
-        console.info(arr_assignmentsCopy);
-        let arr_IDs = [];
-        let children_possibleNodes = document.getElementsByClassName('activity-item');
-        for (let i = 0; i < children_possibleNodes.length; i++) {
-            if(children_possibleNodes[i].getAttribute('data-original-title')){
-                let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
-                for (let j = 0; j < arr_assignmentsCopy.length; j++) {
-                    if(str.includes(arr_assignmentsCopy[j])){
-                        //got one assignment
-                        arr_IDs.push(children_possibleNodes[i].children[0].href);
-                        arr_assignmentsCopy.splice(j, 1);
-                        break;
-                    }
-                }
-                if(arr_assignmentsCopy.length === 0){
-                    //got all assignments needed
-                    break;
-                }
-            }
-        }
-        return arr_IDs;
-    }, arr_assignmentsCopy);
+    let arr_assignmentIDs = ['1131116', '1131124'];
     console.info(arr_assignmentIDs);
-    //
-    // let temp = arr_objs_classes.slice(5); //TODO: Delete this in prod
-    // let input = [];
-    // temp.forEach(obj => {
-    //     input.push(parsePageForTimeSpent(obj, browser))
-    // });
-    //
-    // const result = await Promise.all(input);
-    // console.log(result);
-    //
+
+    if(arr_assignmentIDs.length < arr_assignments.length){
+        console.error('Some assignments were not found !');
+    }
+
+    let temp = arr_objs_classes.slice(5); //TODO: Delete this in prod
+    let input = [];
+    temp.forEach(obj => {
+        input.push(parseEachStudent(obj, browser))
+    });
+
+    const result = await Promise.all(input);
+    console.log(result);
+
     // await browser.close();
 }
 
 
-async function parsePageForTimeSpent(obj, browser) {
+async function parseEachStudent(obj, browser) {
     return new Promise(async (resolve, reject) => {
         const page = await browser.newPage();
         await page.goto(obj.url, {waitUntil: 'networkidle2', timeout: 0});
         await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
-        await setTimeout(()=>{}, 1000);
         await page.evaluate(
             (arr_assignments)=>{
                 let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
+                //TODO: Need to go through each status indicator, check link, add time spent to final obj arr
 
+                //TODO: Also need to go through and fetch submission times
 
-                return (table.childElementCount);
+                return (table.length);
             }, arr_assignments
         ).then(res => {
             console.info(res);
