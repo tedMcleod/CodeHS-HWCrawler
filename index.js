@@ -4,6 +4,7 @@ const puppeteer = require('puppeteer');
 const CREDS = require('./secrets/creds');
 const SECTIONS = require('./secrets/sections');
 const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/time_tracking';
+const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignment/{2}/';
 const format = require('string-format');
 const jsdom = require("jsdom");
 const { JSDOM } = jsdom;
@@ -90,45 +91,16 @@ async function start() {
 
     await page.waitForNavigation();
 
-    //Grab all assignment IDs
-    // await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress', arr_objs_classes[0].sectionId, arr_objs_classes[0].classId), {waitUntil: 'networkidle2', timeout: 0});
-    // await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
-    //
-    // let arr_assignmentsCopy = arr_assignments.slice();
-    // let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy)=>{
-    //     console.info(arr_assignmentsCopy);
-    //     let arr_IDs = [];
-    //     let children_possibleNodes = document.getElementsByClassName('activity-item');
-    //     for (let i = 0; i < children_possibleNodes.length; i++) {
-    //         if(children_possibleNodes[i].getAttribute('data-original-title')){
-    //             let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
-    //             for (let j = 0; j < arr_assignmentsCopy.length; j++) {
-    //                 if(str.includes(arr_assignmentsCopy[j])){
-    //                     //got one assignment
-    //                     arr_IDs.push({name: arr_assignmentsCopy[j], url: children_possibleNodes[i].children[0].href});
-    //                     arr_assignmentsCopy.splice(j, 1);
-    //                     break;
-    //                 }
-    //             }
-    //             if(arr_assignmentsCopy.length === 0){
-    //                 //got all assignments needed
-    //                 break;
-    //             }
-    //         }
-    //     }
-    //     return arr_IDs;
-    // }, arr_assignmentsCopy);
-    // for (let i = 0; i < arr_assignmentIDs.length; i++) {
-    //     let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
-    //     arr_assignmentIDs[i] = temp_split[6];
-    // }
+    let arr_completedSectionIDs = [];
+    let arr_queue_fetchAssignmentId = [];
+    arr_objs_classes.forEach(obj => {
+        if(!arr_completedSectionIDs.includes(obj.sectionId)){
+            arr_completedSectionIDs.push(obj.sectionId);
+            arr_queue_fetchAssignmentId.push(getAssignmentIDs(obj, arr_objs_classes, browser));
+        }
+    });
 
-    let arr_assignmentIDs = ['1131116', '1131124'];
-    console.info(arr_assignmentIDs);
-
-    if(arr_assignmentIDs.length < arr_assignments.length){
-        console.error('Some assignments were not found !');
-    }
+    await Promise.all(arr_queue_fetchAssignmentId);
 
     let temp = arr_objs_classes.slice(5); //TODO: Delete this in prod
     let input = [];
@@ -143,21 +115,110 @@ async function start() {
 }
 
 
+async function getAssignmentIDs(obj, arr_objs_classes, browser){
+    return new Promise(async (resolve, reject) => {
+        const page = await browser.newPage();
+        await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId), {waitUntil: 'networkidle2', timeout: 0});
+        await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+
+        let arr_assignmentsCopy = arr_assignments.slice();
+        let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy)=>{
+            console.info(arr_assignmentsCopy);
+            let arr_IDs = [];
+            let children_possibleNodes = document.getElementsByClassName('activity-item');
+            for (let i = 0; i < children_possibleNodes.length; i++) {
+                if(children_possibleNodes[i].getAttribute('data-original-title')){
+                    let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+                    for (let j = 0; j < arr_assignmentsCopy.length; j++) {
+                        if(str.includes(arr_assignmentsCopy[j])){
+                            //got one assignment
+                            arr_IDs.push({name: arr_assignmentsCopy[j], url: children_possibleNodes[i].children[0].href});
+                            arr_assignmentsCopy.splice(j, 1);
+                            break;
+                        }
+                    }
+                    if(arr_assignmentsCopy.length === 0){
+                        //got all assignments needed
+                        break;
+                    }
+                }
+            }
+            return arr_IDs;
+        }, arr_assignmentsCopy);
+
+        page.close();
+
+        for (let i = 0; i < arr_assignmentIDs.length; i++) {
+            let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
+            arr_assignmentIDs[i] = temp_split[6];
+        }
+
+        //attach assignmentIDs array to each matching section's object
+        arr_objs_classes.forEach(arrayObject => {
+            if(arrayObject.sectionId === obj.sectionId){
+                arrayObject.assignmentIDs = arr_assignmentIDs;
+            }
+        });
+        console.info("AssignmentIds", obj.assignmentIDs);
+
+        resolve('done');
+    })
+}
+
+
 async function parseEachStudent(obj, browser) {
     return new Promise(async (resolve, reject) => {
         const page = await browser.newPage();
         await page.goto(obj.url, {waitUntil: 'networkidle2', timeout: 0});
         await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
         await page.evaluate(
-            (arr_assignments)=>{
+            (arr_assignmentIDs)=>{
+                let arr_obj_studentGrade = [];
                 let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
                 //TODO: Need to go through each status indicator, check link, add time spent to final obj arr
 
                 //TODO: Also need to go through and fetch submission times
 
+                for (let i = 0; i < table.length; i++) {
+                    let student_firstName = table[i].getAttribute('data-first-name').toString();
+                    let student_lastName = table[i].getAttribute('data-last-name').toString();
+                    let student_email = table[i].children[2].innerHTML.toString();
+                    let obj_student = {
+                        firstName : student_firstName,
+                        lastName: student_lastName,
+                        email : student_email,
+                        assignments : {}
+                    };
+
+                    let arrIDsCopy = arr_assignmentIDs.slice();
+
+                    let candidate_assignments = table[i].getElementsByClassName('progress-text');
+                    for (let j = 0; j < candidate_assignments.length; j++) {
+                        let refStr = candidate_assignments[j].href;
+                        if(refStr){
+                            // console.debug(refStr);
+                            for (let k = 0; k < arrIDsCopy.length; k++) {
+                                if(refStr.includes(arrIDsCopy[k])){
+                                    // console.error(student_firstName + " " + arrIDsCopy[k]);
+                                    // console.error(obj_student);
+                                    obj_student.assignments['' + arrIDsCopy[k]] = {};
+                                    obj_student.assignments['' + arrIDsCopy[k]].timeSpent = candidate_assignments[j].children[0].innerHTML.toString();
+                                    arrIDsCopy.splice(k, 1);
+                                    break;
+                                }
+                            }
+                            if (arrIDsCopy.length === 0) {
+                                //got all assignments of that student
+                                break;
+                            }
+                        }
+                    }
+                    console.info(obj_student);
+                }
+
                 return (table.length);
-            }, arr_assignments
+            }, obj.assignmentIDs
         ).then(res => {
             console.info(res);
         });
