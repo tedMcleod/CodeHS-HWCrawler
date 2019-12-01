@@ -1,5 +1,3 @@
-const pLimit = require('p-limit');
-const limit = pLimit(2); //TODO: Change this to be based on cpu cores
 const puppeteer = require('puppeteer');
 const CREDS = require('./secrets/creds');
 const SECTIONS = require('./secrets/sections');
@@ -7,6 +5,7 @@ const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/ti
 const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignment/{2}/';
 const format = require('string-format');
 const util = require('util');
+const fs = require('fs');
 
 console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
@@ -109,7 +108,66 @@ async function start() {
 
     console.info(util.inspect(arr_objs_classes, false, null, true));
 
-    // await browser.close();
+    arr_objs_classes.forEach(classObj => {
+        let content_rows = [];
+        let headers = ['Name', 'Period', 'E-mail'];
+        arr_assignments.forEach(assignmentName => {
+            headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
+        });
+        headers.push('Total Points Awarded','Total Points Possible', 'On Time?');
+        content_rows.push(headers);
+        classObj.students.forEach(studentObj => {
+            let studentRow = [];
+            studentRow.push('"'+studentObj.lastName + ', ' + studentObj.firstName+'"');
+            studentRow.push(classObj.classNum);
+            studentRow.push('TBD'); //TODO: get student email
+
+            Number.prototype.padLeft = function (base, chr) {
+                let len = (String(base || 10).length - String(this).length) + 1;
+                return len > 0 ? new Array(len).join(chr || '0') + this : this;
+            };
+
+            let totalAwarded = 0;
+            let totalPossible = 0;
+
+            Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                studentRow.push(studentObj.assignments[assignmentIDs].problemName);
+                let d = date_dueDate;
+                studentRow.push([(d.getMonth() + 1).padLeft(),
+                        d.getDate().padLeft(),
+                        d.getFullYear()].join('/') + ' ' +
+                    [d.getHours().padLeft(),
+                        d.getMinutes().padLeft(),
+                        d.getSeconds().padLeft()].join(':'));
+                studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
+                studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
+                studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
+                studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
+                studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
+                studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
+                studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
+                totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
+                totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
+            });
+
+            studentRow.push(totalAwarded);
+            studentRow.push(totalPossible);
+            studentRow.push('tbd');
+            content_rows.push(studentRow);
+        });
+        let csvContent = content_rows.map(e => e.join(",")).join("\n");
+        if (!fs.existsSync('./out/data')){
+            fs.mkdirSync('./out/data');
+        }
+        fs.writeFile('./out/data/' + classObj.teacherName + '_P'+classObj.classNum+'.csv', csvContent, function(err) {
+            if(err) {
+                return console.log(err);
+            }
+            console.log(classObj.teacherName + '_P'+classObj.classNum+'.csv was saved');
+        })
+    });
+
+    // await browser.close(); //TODO: uncomment in production
 }
 
 
@@ -240,18 +298,18 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                     let firstTryDate = month + '/' + day + '/' + year;
                                     let firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
                                         hour: '2-digit',
-                                        minute:'2-digit'
+                                        minute: '2-digit'
                                     });
 
                                     //get problem status
                                     let messages = document.getElementById('status-message').children;
                                     let problemStatus;
                                     for (let i = 0; i < messages.length; i++) {
-                                        if(messages[i].innerText){
+                                        if (messages[i].innerText) {
                                             let status = messages[i].innerText;
-                                            if(status.includes(':')){
+                                            if (status.includes(':')) {
                                                 problemStatus = status.split(':')[1].trim();
-                                            }else{
+                                            } else {
                                                 //example programs arent graded... i think
                                                 problemStatus = 'Finalized';
                                             }
@@ -267,9 +325,10 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                         timeWorkedTotal: '',
                                         onTimeStatus: '',
                                         problemStatus: problemStatus,
-                                        pointsAwarded: '',
-                                        maxPoints: ''
+                                        pointsAwarded: '1',
+                                        maxPoints: '2'
                                     };
+                                    //TODO: CHANGE POINTS TO USE GRADING HISTORY XHR
 
                                     res(1);
                                 };
