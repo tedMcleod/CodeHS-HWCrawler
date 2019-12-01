@@ -8,12 +8,11 @@ const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignm
 const format = require('string-format');
 const util = require('util');
 
-
 console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
 if (arr_args.length === 0) {
-    arr_args = ['11/22/19', '11:11', '2', 'Mindsets', 'Short Stack', '2', 'm0', 's0'];
+    arr_args = ['11/22/19', '11:11', '2', 'First+Boolean', 'President', '2', 'm0', 's0'];
 }
 
 // console.log('arguments', arr_args);
@@ -24,10 +23,12 @@ let arr_dueTime = arr_args[1].split(':');
 let date_dueDate = new Date((arr_dueDate[2].length !== 4 ? 2000 + (+arr_dueDate[2]) : +arr_dueDate[2]),
     +arr_dueDate[0], +arr_dueDate[1], +arr_dueTime[0], +arr_dueTime[0], 0, 0);
 
+
 let assignmentsCount = +arr_args[2];
 let arr_assignments = [];
 for (let i = 0; i < assignmentsCount; i++) {
-    arr_assignments.push(arr_args[3 + i].toString().toLowerCase());
+    let temp_str = ""+arr_args[3 + i];
+    arr_assignments.push(temp_str.replaceAll("\\\+", " ").toString().toLowerCase());
 }
 
 let arr_objs_classes = [];
@@ -104,9 +105,10 @@ async function start() {
 
     await Promise.all(arr_queue_fetchAssignmentId);
 
-    let temp = arr_objs_classes.slice(5); //TODO: Delete this in prod
+    arr_objs_classes = arr_objs_classes.slice(5); //TODO: Delete this in prod
+
     let arr_queue_fetchStudentStats = [];
-    temp.forEach(obj => {
+    arr_objs_classes.forEach(obj => {
         arr_queue_fetchStudentStats.push(limit(() => parseEachStudent(obj, arr_objs_classes, browser)))
     });
 
@@ -127,46 +129,6 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
             timeout: 0
         });
         await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
-
-        //TODO: Move all of this test code down to parseStudent function
-        await page.addScriptTag({path: './bower_components/promise-throttle/dist/promise-throttle.js'});
-        await page.evaluate(() => {
-            console.info(window.PromiseThrottle);
-            const PromiseThrottle = window.PromiseThrottle;
-            var myFunction = function (i) {
-                return new Promise(function (resolve, reject) {
-                    // here we simulate that the promise runs some code
-                    // asynchronously
-                    setTimeout(function () {
-                        console.log(i + ": " + Math.random());
-                        resolve(i);
-                    }, 10);
-                });
-            };
-
-            var promiseThrottle = new PromiseThrottle({
-                requestsPerSecond: 1,           // up to 1 request per second
-                promiseImplementation: Promise  // the Promise library you are using
-            });
-
-            var amountOfPromises = 10;
-            while (amountOfPromises-- > 0) {
-                promiseThrottle.add(myFunction.bind(this, amountOfPromises))
-                    .then(function (i) {
-                        console.log("Promise " + i + " done");
-                    });
-            }
-
-            // example using Promise.all
-            var one = promiseThrottle.add(myFunction.bind(this, 1));
-            var two = promiseThrottle.add(myFunction.bind(this, 2));
-            var three = promiseThrottle.add(myFunction.bind(this, 3));
-
-            Promise.all([one, two, three])
-                .then(function (r) {
-                    console.log("Promises " + r.join(", ") + " done");
-                });
-        });
 
         let arr_assignmentsCopy = arr_assignments.slice();
         let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy) => {
@@ -196,7 +158,7 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
             return arr_IDs;
         }, arr_assignmentsCopy);
 
-        // page.close();
+        page.close();
 
         for (let i = 0; i < arr_assignmentIDs.length; i++) {
             let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
@@ -211,7 +173,7 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
         });
         console.info("AssignmentIds", obj.assignmentIDs);
 
-        // resolve('done');
+        resolve('done');
     })
 }
 
@@ -221,8 +183,18 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
         const page = await browser.newPage();
         await page.goto(obj.url, {waitUntil: 'networkidle2', timeout: 0});
         await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+
+        await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
         await page.evaluate(
             async (arr_assignmentIDs, TEMPLATE_STUDENT_URL, obj) => {
+                //import bottleneck from script tag
+                let Bottleneck = window.Bottleneck;
+                const limiter = new Bottleneck({
+                    maxConcurrent: 10,
+                    minTime: 200
+                });
+
+                //add String.format utility
                 if (!String.format) {
                     String.format = function (format) {
                         var args = Array.prototype.slice.call(arguments, 1);
@@ -236,10 +208,6 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
                 }
                 let arr_obj_students = [];
                 let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
-
-                //TODO: Need to go through each status indicator, check link, add time spent to final obj arr
-
-                //TODO: Also need to go through and fetch submission times
 
                 for (let i = 0; i < table.length; i++) {
                     let student_firstName = table[i].getAttribute('data-first-name').toString();
@@ -279,21 +247,34 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
                     arr_obj_students.push(obj_student);
                 }
 
-                // fetch student's page
+                //limits to one student for testing
+                arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
+                console.info('fetching student pages', arr_obj_students);
+
+                // fetch student's page
                 await Promise.all(arr_obj_students.map(async (studentObject) => {
-                    await Promise.all(Object.keys(studentObject.assignments).map(async (key) => {
-                        return new Promise((resolve, reject) => {
-                            let xhr = new XMLHttpRequest();
-                            xhr.onload = function () {
-                                console.info(this.responseXML.title);
-                                resolve(1);
-                            };
-                            xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                            xhr.responseType = "document";
-                            xhr.send();
-                        })
-                    }))
+                    console.info('processing', studentObject);
+                    await limiter.schedule(() => {
+                        const allTasks = Object.keys(studentObject.assignments).map(async (key) => {
+                            return new Promise((resolve, reject) => {
+                                let xhr = new XMLHttpRequest();
+                                xhr.onload = function () {
+                                    console.info('response title', this.responseXML);
+                                    resolve(1);
+                                };
+                                console.info(studentObject.id);
+                                console.info(obj.classId);
+                                console.info(key);
+
+                                xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                xhr.responseType = "document";
+                                xhr.send();
+                                console.info('XHR Sent', key);
+                            })
+                        });
+                        return Promise.all(allTasks);
+                    });
                 }));
 
                 return arr_obj_students;
@@ -306,3 +287,9 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
         resolve('Done: ' + obj.teacherName + ' P' + obj.classNum);
     })
 }
+
+
+String.prototype.replaceAll = function(search, replacement) {
+    let target = this;
+    return target.replace(new RegExp(search, 'g'), replacement);
+};

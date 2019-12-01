@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
+    "bottleneck": "^2.19.5",
     "jsdom": "^15.2.1",
     "p-limit": "^2.2.1",
     "puppeteer": "^2.0.0",
