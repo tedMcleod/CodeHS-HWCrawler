@@ -24,10 +24,16 @@ let date_dueDate = new Date((arr_dueDate[2].length !== 4 ? 2000 + (+arr_dueDate[
     +arr_dueDate[0], +arr_dueDate[1], +arr_dueTime[0], +arr_dueTime[0], 0, 0);
 
 
+//will not work ... below this ???
+String.prototype.replaceAll = function (search, replacement) {
+    let target = this;
+    return target.replace(new RegExp(search, 'g'), replacement);
+};
+
 let assignmentsCount = +arr_args[2];
 let arr_assignments = [];
 for (let i = 0; i < assignmentsCount; i++) {
-    let temp_str = ""+arr_args[3 + i];
+    let temp_str = "" + arr_args[3 + i];
     arr_assignments.push(temp_str.replaceAll("\\\+", " ").toString().toLowerCase());
 }
 
@@ -94,26 +100,12 @@ async function start() {
 
     await page.waitForNavigation();
 
-    let arr_completedSectionIDs = [];
-    let arr_queue_fetchAssignmentId = [];
-    arr_objs_classes.forEach(obj => {
-        if (!arr_completedSectionIDs.includes(obj.sectionId)) {
-            arr_completedSectionIDs.push(obj.sectionId);
-            arr_queue_fetchAssignmentId.push(getAssignmentIDs(obj, arr_objs_classes, browser));
-        }
-    });
+    arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
+    //TODO: use this to choose which class
+
+    let arr_queue_fetchAssignmentId = arr_objs_classes.map(obj => getAssignmentIDs(obj, arr_objs_classes, browser));
 
     await Promise.all(arr_queue_fetchAssignmentId);
-
-    arr_objs_classes = arr_objs_classes.slice(5); //TODO: Delete this in prod
-
-    let arr_queue_fetchStudentStats = [];
-    arr_objs_classes.forEach(obj => {
-        arr_queue_fetchStudentStats.push(limit(() => parseEachStudent(obj, arr_objs_classes, browser)))
-    });
-
-    const result = await Promise.all(arr_queue_fetchStudentStats);
-    console.log(result);
 
     console.info(util.inspect(arr_objs_classes, false, null, true));
 
@@ -158,35 +150,14 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
             return arr_IDs;
         }, arr_assignmentsCopy);
 
-        page.close();
-
         for (let i = 0; i < arr_assignmentIDs.length; i++) {
             let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
             arr_assignmentIDs[i] = temp_split[6];
         }
 
-        //attach assignmentIDs array to each matching section's object
-        arr_objs_classes.forEach(arrayObject => {
-            if (arrayObject.sectionId === obj.sectionId) {
-                arrayObject.assignmentIDs = arr_assignmentIDs;
-            }
-        });
-        console.info("AssignmentIds", obj.assignmentIDs);
-
-        resolve('done');
-    })
-}
-
-
-async function parseEachStudent(obj, arr_objs_classes, browser) {
-    return new Promise(async (resolve, reject) => {
-        const page = await browser.newPage();
-        await page.goto(obj.url, {waitUntil: 'networkidle2', timeout: 0});
-        await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
-
         await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
-        await page.evaluate(
-            async (arr_assignmentIDs, TEMPLATE_STUDENT_URL, obj) => {
+        obj.students = await page.evaluate(
+            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL) => {
                 //import bottleneck from script tag
                 let Bottleneck = window.Bottleneck;
                 const limiter = new Bottleneck({
@@ -206,42 +177,25 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
                         });
                     };
                 }
+
                 let arr_obj_students = [];
                 let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
                 for (let i = 0; i < table.length; i++) {
                     let student_firstName = table[i].getAttribute('data-first-name').toString();
                     let student_lastName = table[i].getAttribute('data-last-name').toString();
-                    let student_email = table[i].children[2].innerHTML.toString();
                     let obj_student = {
                         firstName: student_firstName,
                         lastName: student_lastName,
-                        email: student_email,
                         assignments: {}
                     };
 
-                    let arrIDsCopy = arr_assignmentIDs.slice();
-
-                    let candidate_assignments = table[i].getElementsByClassName('progress-text');
+                    let candidate_assignments = table[i].getElementsByClassName('progress-circle');
                     for (let j = 0; j < candidate_assignments.length; j++) {
                         let refStr = candidate_assignments[j].href;
                         if (refStr) {
                             obj_student.id = refStr.split('/')[4];
-                            // console.debug(refStr);
-                            for (let k = 0; k < arrIDsCopy.length; k++) {
-                                if (refStr.includes(arrIDsCopy[k])) {
-                                    // console.error(student_firstName + " " + arrIDsCopy[k]);
-                                    // console.error(obj_student);
-                                    obj_student.assignments['' + arrIDsCopy[k]] = {};
-                                    obj_student.assignments['' + arrIDsCopy[k]].timeSpent = candidate_assignments[j].children[0].innerHTML.toString();
-                                    arrIDsCopy.splice(k, 1);
-                                    break;
-                                }
-                            }
-                            if (arrIDsCopy.length === 0) {
-                                //got all assignments of that student
-                                break;
-                            }
+                            break;
                         }
                     }
                     arr_obj_students.push(obj_student);
@@ -256,12 +210,40 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
                 await Promise.all(arr_obj_students.map(async (studentObject) => {
                     console.info('processing', studentObject);
                     await limiter.schedule(() => {
-                        const allTasks = Object.keys(studentObject.assignments).map(async (key) => {
-                            return new Promise((resolve, reject) => {
+                        const allTasks = arr_assignmentIDs.map(async (key) => {
+                            return new Promise((res, rej) => {
                                 let xhr = new XMLHttpRequest();
                                 xhr.onload = function () {
-                                    console.info('response title', this.responseXML);
-                                    resolve(1);
+                                    let document = this.responseXML;
+                                    console.info('submission select', document.getElementById('assignment-submission-select'));
+
+                                    //get problem name
+                                    let problemName = document.title.split('|')[0].trim();
+
+                                    //get first try date/time
+                                    let startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
+                                    startedText = startedText.trim().substring(11).trim();
+                                    let date_startDate = new Date(startedText.substring(0, startedText.length-4));
+                                    //attach date 'hours' modifier
+                                    Date.prototype.addHours = function(h) {
+                                        this.setTime(this.getTime() + (h*60*60*1000));
+                                        return this;
+                                    };
+                                    if(startedText.includes())
+
+                                    studentObject.assignments[''+key] = {
+                                        problemName : problemName,
+                                        firstTryDate: '',
+                                        firstTryTime: '',
+                                        timeWorkedBeforeDue: '',
+                                        timeWorkedTotal: '',
+                                        onTimeStatus: '',
+                                        problemStatus: '',
+                                        pointsAwarded: '',
+                                        maxPoints: ''
+                                    };
+
+                                    res(1);
                                 };
                                 console.info(studentObject.id);
                                 console.info(obj.classId);
@@ -278,18 +260,9 @@ async function parseEachStudent(obj, arr_objs_classes, browser) {
                 }));
 
                 return arr_obj_students;
-            }, obj.assignmentIDs, TEMPLATE_STUDENT_URL, obj
-        ).then(arr_students => {
-            // console.info(arr_students);
-            obj.students = arr_students;
-        });
-
-        resolve('Done: ' + obj.teacherName + ' P' + obj.classNum);
+            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL
+        );
+        // console.info('done obj', obj);
+        resolve('done at ' + Date.now());
     })
 }
-
-
-String.prototype.replaceAll = function(search, replacement) {
-    let target = this;
-    return target.replace(new RegExp(search, 'g'), replacement);
-};
