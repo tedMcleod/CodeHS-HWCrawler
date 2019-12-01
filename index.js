@@ -12,7 +12,7 @@ console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
 if (arr_args.length === 0) {
-    arr_args = ['11/22/19', '11:11', '2', 'First+Boolean', 'President', '2', 'm0', 's0'];
+    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0'];
 }
 
 // console.log('arguments', arr_args);
@@ -273,14 +273,14 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
 
                                     res(1);
                                 };
-                                console.info(studentObject.id);
-                                console.info(obj.classId);
-                                console.info(key);
+                                // console.info(studentObject.id);
+                                // console.info(obj.classId);
+                                // console.info(key);
 
                                 xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                 xhr.responseType = "document";
                                 xhr.send();
-                                console.info('XHR Sent', key);
+                                // console.info('XHR Sent', key);
                             })
                         });
                         return Promise.all(allTasks);
