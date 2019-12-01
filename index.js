@@ -223,22 +223,50 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                     //get first try date/time
                                     let startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
                                     startedText = startedText.trim().substring(11).trim();
-                                    let date_startDate = new Date(startedText.substring(0, startedText.length-4));
+                                    let date_startDate = new Date(startedText.substring(0, startedText.length - 4));
                                     //attach date 'hours' modifier
-                                    Date.prototype.addHours = function(h) {
-                                        this.setTime(this.getTime() + (h*60*60*1000));
+                                    Date.prototype.addHours = function (h) {
+                                        this.setTime(this.getTime() + (h * 60 * 60 * 1000));
                                         return this;
                                     };
-                                    if(startedText.includes())
+                                    if (startedText.includes('p.m.')) {
+                                        date_startDate.addHours(12);
+                                    }
+                                    // console.info('raw start text', startedText);
+                                    // console.info('start date object', date_startDate);
+                                    let year = date_startDate.getFullYear();
+                                    let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
+                                    let day = date_startDate.getDate().toString().padStart(2, '0');
+                                    let firstTryDate = month + '/' + day + '/' + year;
+                                    let firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
+                                        hour: '2-digit',
+                                        minute:'2-digit'
+                                    });
 
-                                    studentObject.assignments[''+key] = {
-                                        problemName : problemName,
-                                        firstTryDate: '',
-                                        firstTryTime: '',
+                                    //get problem status
+                                    let messages = document.getElementById('status-message').children;
+                                    let problemStatus;
+                                    for (let i = 0; i < messages.length; i++) {
+                                        if(messages[i].innerText){
+                                            let status = messages[i].innerText;
+                                            if(status.includes(':')){
+                                                problemStatus = status.split(':')[1].trim();
+                                            }else{
+                                                //example programs arent graded... i think
+                                                problemStatus = 'Finalized';
+                                            }
+                                            break;
+                                        }
+                                    }
+
+                                    studentObject.assignments['' + key] = {
+                                        problemName: problemName,
+                                        firstTryDate: firstTryDate,
+                                        firstTryTime: firstTryTime,
                                         timeWorkedBeforeDue: '',
                                         timeWorkedTotal: '',
                                         onTimeStatus: '',
-                                        problemStatus: '',
+                                        problemStatus: problemStatus,
                                         pointsAwarded: '',
                                         maxPoints: ''
                                     };
