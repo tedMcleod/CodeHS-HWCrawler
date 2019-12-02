@@ -11,7 +11,7 @@ console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
 if (arr_args.length === 0) {
-    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0'];
+    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0', 'false'];
 }
 
 // console.log('arguments', arr_args);
@@ -21,7 +21,6 @@ let arr_dueTime = arr_args[1].split(':');
 
 let date_dueDate = new Date((arr_dueDate[2].length !== 4 ? 2000 + (+arr_dueDate[2]) : +arr_dueDate[2]),
     +arr_dueDate[0], +arr_dueDate[1], +arr_dueTime[0], +arr_dueTime[0], 0, 0);
-
 
 //will not work ... below this ???
 String.prototype.replaceAll = function (search, replacement) {
@@ -73,6 +72,10 @@ for (let i = 0; i < teachersCount; i++) {
     })
 }
 
+let boolean_refreshStudentList = arr_args[assignmentsCount + teachersCount + 4];
+console.info('refresh students list?', boolean_refreshStudentList);
+//TODO: implement cache for students list (no need to navigate every time)
+
 console.info(date_dueDate);
 console.info(arr_assignments);
 
@@ -114,11 +117,11 @@ async function start() {
         arr_assignments.forEach(assignmentName => {
             headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
         });
-        headers.push('Total Points Awarded','Total Points Possible', 'On Time?');
+        headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
         content_rows.push(headers);
         classObj.students.forEach(studentObj => {
             let studentRow = [];
-            studentRow.push('"'+studentObj.lastName + ', ' + studentObj.firstName+'"');
+            studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
             studentRow.push(classObj.classNum);
             studentRow.push('TBD'); //TODO: get student email
 
@@ -156,14 +159,14 @@ async function start() {
             content_rows.push(studentRow);
         });
         let csvContent = content_rows.map(e => e.join(",")).join("\n");
-        if (!fs.existsSync('./out/data')){
+        if (!fs.existsSync('./out/data')) {
             fs.mkdirSync('./out/data');
         }
-        fs.writeFile('./out/data/' + classObj.teacherName + '_P'+classObj.classNum+'.csv', csvContent, function(err) {
-            if(err) {
+        fs.writeFile('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv', csvContent, function (err) {
+            if (err) {
                 return console.log(err);
             }
-            console.log(classObj.teacherName + '_P'+classObj.classNum+'.csv was saved');
+            console.log(classObj.teacherName + '_P' + classObj.classNum + '.csv was saved');
         })
     });
 
@@ -271,7 +274,7 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                         const allTasks = arr_assignmentIDs.map(async (key) => {
                             return new Promise((res, rej) => {
                                 let xhr = new XMLHttpRequest();
-                                xhr.onload = function () {
+                                xhr.onload = async function () {
                                     let document = this.responseXML;
                                     console.info('submission select', document.getElementById('assignment-submission-select'));
 
@@ -328,7 +331,51 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                         pointsAwarded: '1',
                                         maxPoints: '2'
                                     };
-                                    //TODO: CHANGE POINTS TO USE GRADING HISTORY XHR
+
+                                    let studentAssignmentID;
+                                    let arr_candidate_scripts = document.getElementsByTagName('script');
+                                    for (let i = 0; i < arr_candidate_scripts.length; i++) {
+                                        let temp_innerText = arr_candidate_scripts[i].innerText;
+                                        if (temp_innerText) {
+                                            if (temp_innerText.includes('studentAssignmentID')) {
+                                                temp_innerText = temp_innerText.substring(
+                                                    temp_innerText.indexOf(':', temp_innerText.lastIndexOf('studentAssignmentID')) + 1).trim();
+                                                // console.info('innerText', temp_innerText);
+                                                studentAssignmentID = temp_innerText.split(' ')[0].substring(0, temp_innerText.indexOf(',')).trim();
+                                                // console.info('student assignment ID', studentAssignmentID);
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    function formatParams(params) {
+                                        return "?" + Object
+                                            .keys(params)
+                                            .map(function (key) {
+                                                return key + "=" + encodeURIComponent(params[key])
+                                            })
+                                            .join("&")
+                                    }
+
+                                    function getCurrHistory() {
+                                        return new Promise(function (r, j) {
+                                            let historyRequest = new XMLHttpRequest();
+                                            historyRequest.onload = function () {
+                                                r(this.responseText);
+                                            };
+                                            let queryParams = {
+                                                student_assignment_id: studentAssignmentID,
+                                                method: 'get_grading_history'
+                                            };
+                                            historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
+                                            historyRequest.send();
+                                        });
+                                    }
+                                    let responseTxt = await getCurrHistory();
+                                    console.info(responseTxt);
+                                    let responseObject = JSON.parse(''+responseTxt);
+                                    let currentGrade = responseObject['current_status'];
+                                    console.info(currentGrade);
 
                                     res(1);
                                 };
