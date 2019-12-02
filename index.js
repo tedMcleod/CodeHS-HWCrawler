@@ -6,6 +6,9 @@ const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignm
 const format = require('string-format');
 const util = require('util');
 const fs = require('fs');
+const pLimit = require('p-limit');
+const networkLimit = pLimit(2);
+const ioLimit = pLimit(4);
 
 console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
@@ -102,79 +105,120 @@ async function start() {
 
     await page.waitForNavigation();
 
-    arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
+    // arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
     //TODO: use this to choose which class
 
-    let arr_queue_fetchAssignmentId = arr_objs_classes.map(obj => getAssignmentIDs(obj, arr_objs_classes, browser));
+    // await Promise.all(arr_objs_classes.map((obj) =>{
+    //     return networkLimit(()=>parseClassPages(obj, arr_objs_classes, browser))
+    // }));
+    //
+    // console.info(util.inspect(arr_objs_classes, false, null, true));
+    //
+    // await Promise.all(arr_objs_classes.map((classObj) => {
+    //     return ioLimit(()=>writeClass(classObj));
+    // }));
 
-    await Promise.all(arr_queue_fetchAssignmentId);
-
-    console.info(util.inspect(arr_objs_classes, false, null, true));
-
-    arr_objs_classes.forEach(classObj => {
-        let content_rows = [];
-        let headers = ['Name', 'Period', 'E-mail'];
-        arr_assignments.forEach(assignmentName => {
-            headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
-        });
-        headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
-        content_rows.push(headers);
-        classObj.students.forEach(studentObj => {
-            let studentRow = [];
-            studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
-            studentRow.push(classObj.classNum);
-            studentRow.push('TBD'); //TODO: get student email
-
-            Number.prototype.padLeft = function (base, chr) {
-                let len = (String(base || 10).length - String(this).length) + 1;
-                return len > 0 ? new Array(len).join(chr || '0') + this : this;
-            };
-
-            let totalAwarded = 0;
-            let totalPossible = 0;
-
-            Object.keys(studentObj.assignments).forEach(assignmentIDs => {
-                studentRow.push(studentObj.assignments[assignmentIDs].problemName);
-                let d = date_dueDate;
-                studentRow.push([(d.getMonth() + 1).padLeft(),
-                        d.getDate().padLeft(),
-                        d.getFullYear()].join('/') + ' ' +
-                    [d.getHours().padLeft(),
-                        d.getMinutes().padLeft(),
-                        d.getSeconds().padLeft()].join(':'));
-                studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
-                studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
-                studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
-                studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
-                studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
-                studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
-                studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
-                totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
-                totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
-            });
-
-            studentRow.push(totalAwarded);
-            studentRow.push(totalPossible);
-            studentRow.push('tbd');
-            content_rows.push(studentRow);
-        });
-        let csvContent = content_rows.map(e => e.join(",")).join("\n");
-        if (!fs.existsSync('./out/data')) {
-            fs.mkdirSync('./out/data');
+    await page.goto('https://codehs.com/lms/assignments/2323/section/92352/progress?');
+    await page.evaluate(()=>{
+        function formatParams(params) {
+            return "?" + Object
+                .keys(params)
+                .map(function (key) {
+                    return key + "=" + encodeURIComponent(params[key])
+                })
+                .join("&")
         }
-        fs.writeFile('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv', csvContent, function (err) {
-            if (err) {
-                return console.log(err);
+        function getCook(cookiename)
+        {
+            // Get name followed by anything except a semicolon
+            var cookiestring=RegExp(""+cookiename+"[^;]+").exec(document.cookie);
+            // Return everything after the equal sign, or an empty string if the cookie name not found
+            return decodeURIComponent(!!cookiestring ? cookiestring.toString().replace(/^[^=]+./,"") : "");
+        }
+
+        let xhr = new XMLHttpRequest();
+        xhr.onreadystatechange = function() {//Call a function when the state changes.
+            if(xhr.readyState === 4 && xhr.status === 200) {
+                console.info(xhr.response);
             }
-            console.log(classObj.teacherName + '_P' + classObj.classNum + '.csv was saved');
-        })
+        };
+        let params = 'teacher_course_id=2323&section_id=92353&module_num=0&method=section_assignment_progress';
+        xhr.open("POST", 'https://codehs.com/core/ajax/section_assignment_progress');
+        xhr.setRequestHeader('x-csrftoken', getCook('csrftoken'));
+        xhr.setRequestHeader('accept', 'application/json, text/javascript, */*; q=0.01');
+        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        xhr.setRequestHeader('x-request-with', 'XMLHttpRequest');
+        xhr.send(params);
     });
+
+    function writeClass(classObj) {
+        return new Promise((re, reje) => {
+            let content_rows = [];
+            let headers = ['Name', 'Period', 'E-mail'];
+            arr_assignments.forEach(assignmentName => {
+                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
+            });
+            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
+            content_rows.push(headers);
+            classObj.students.forEach(studentObj => {
+                let studentRow = [];
+                studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
+                studentRow.push(classObj.classNum);
+                studentRow.push('TBD'); //TODO: get student email
+
+                Number.prototype.padLeft = function (base, chr) {
+                    let len = (String(base || 10).length - String(this).length) + 1;
+                    return len > 0 ? new Array(len).join(chr || '0') + this : this;
+                };
+
+                let totalAwarded = 0;
+                let totalPossible = 0;
+
+                Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                    studentRow.push(studentObj.assignments[assignmentIDs].problemName);
+                    let d = date_dueDate;
+                    studentRow.push([(d.getMonth() + 1).padLeft(),
+                            d.getDate().padLeft(),
+                            d.getFullYear()].join('/') + ' ' +
+                        [d.getHours().padLeft(),
+                            d.getMinutes().padLeft(),
+                            d.getSeconds().padLeft()].join(':'));
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
+                    studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
+                    studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
+                    studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
+                    totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
+                    totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
+                });
+
+                studentRow.push(totalAwarded);
+                studentRow.push(totalPossible);
+                studentRow.push('tbd');
+                content_rows.push(studentRow);
+            });
+            let csvContent = content_rows.map(e => e.join(",")).join("\n");
+            if (!fs.existsSync('./out/data')) {
+                fs.mkdirSync('./out/data');
+            }
+            fs.writeFile('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv', csvContent, function (err) {
+                if (err) {
+                    reje('failed');
+                    return console.log(err);
+                }
+                console.log(classObj.teacherName + '_P' + classObj.classNum + '.csv was saved');
+                re(classObj.teacherName + '_P' + classObj.classNum + '.csv ');
+            })
+        });
+    }
 
     // await browser.close(); //TODO: uncomment in production
 }
 
 
-async function getAssignmentIDs(obj, arr_objs_classes, browser) {
+async function parseClassPages(obj, arr_objs_classes, browser) {
     return new Promise(async (resolve, reject) => {
         const page = await browser.newPage();
         await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId), {
@@ -218,7 +262,7 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
 
         await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
         obj.students = await page.evaluate(
-            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL) => {
+            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate) => {
                 //import bottleneck from script tag
                 let Bottleneck = window.Bottleneck;
                 const limiter = new Bottleneck({
@@ -276,7 +320,6 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                 let xhr = new XMLHttpRequest();
                                 xhr.onload = async function () {
                                     let document = this.responseXML;
-                                    console.info('submission select', document.getElementById('assignment-submission-select'));
 
                                     //get problem name
                                     let problemName = document.title.split('|')[0].trim();
@@ -320,18 +363,7 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                         }
                                     }
 
-                                    studentObject.assignments['' + key] = {
-                                        problemName: problemName,
-                                        firstTryDate: firstTryDate,
-                                        firstTryTime: firstTryTime,
-                                        timeWorkedBeforeDue: '',
-                                        timeWorkedTotal: '',
-                                        onTimeStatus: '',
-                                        problemStatus: problemStatus,
-                                        pointsAwarded: '1',
-                                        maxPoints: '2'
-                                    };
-
+                                    //get student grade
                                     let studentAssignmentID;
                                     let arr_candidate_scripts = document.getElementsByTagName('script');
                                     for (let i = 0; i < arr_candidate_scripts.length; i++) {
@@ -371,11 +403,46 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                                             historyRequest.send();
                                         });
                                     }
+
                                     let responseTxt = await getCurrHistory();
-                                    console.info(responseTxt);
-                                    let responseObject = JSON.parse(''+responseTxt);
+                                    // console.info('curr history response Txt', responseTxt);
+                                    let responseObject = JSON.parse('' + responseTxt);
                                     let currentGrade = responseObject['current_status'];
-                                    console.info(currentGrade);
+                                    // console.info(currentGrade);
+                                    let pointsAwarded = '' + currentGrade['score'];
+                                    if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
+                                    let maxPoints = currentGrade['out_of'];
+
+                                    // get time worked
+                                    let selectionField = document.getElementById('assignment-submission-select');
+                                    let submissions = selectionField.getElementsByTagName('option');
+                                    for (let i = 0; i < submissions.length; i++) {
+                                        let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
+                                        //attach date 'hours' modifier
+                                        Date.prototype.addHours = function (h) {
+                                            this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+                                            return this;
+                                        };
+                                        if (submissions[i].innerText.includes('p.m.')) {
+                                            date_submissionDate.addHours(12);
+                                        }
+                                        let value = submissions[i].getAttribute('value');
+                                        let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
+                                        let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
+
+                                    }
+
+                                    studentObject.assignments['' + key] = {
+                                        problemName: problemName,
+                                        firstTryDate: firstTryDate,
+                                        firstTryTime: firstTryTime,
+                                        timeWorkedBeforeDue: '',
+                                        timeWorkedTotal: '',
+                                        onTimeStatus: '',
+                                        problemStatus: problemStatus,
+                                        pointsAwarded: pointsAwarded,
+                                        maxPoints: maxPoints
+                                    };
 
                                     res(1);
                                 };
@@ -394,7 +461,7 @@ async function getAssignmentIDs(obj, arr_objs_classes, browser) {
                 }));
 
                 return arr_obj_students;
-            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL
+            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate
         );
         // console.info('done obj', obj);
         resolve('done at ' + Date.now());
