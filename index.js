@@ -3,13 +3,13 @@ const CREDS = require('./secrets/creds');
 const SECTIONS = require('./secrets/sections');
 const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/time_tracking';
 const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignment/{2}/';
+const TEMPLATE_ROSTER = 'https://codehs.com/section/{0}/roster/info';
 const format = require('string-format');
 const util = require('util');
 const fs = require('fs');
 const pLimit = require('p-limit');
 const path = require('path');
-const networkLimit = pLimit(1);
-const ioLimit = pLimit(4);
+const networkLimit = pLimit(1); //probably wont work scaled up, should be 1 if useCache : false
 const mkdirp = require('mkdirp');
 
 
@@ -93,21 +93,7 @@ async function start() {
         headless: false //TODO: remove for production
     });
     const page = await browser.newPage();
-    await page.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
-
-    const EMAIL_SELECTOR = '#login-email';
-    const PASSWORD_SELECTOR = '#login-password';
-    const BUTTON_SELECTOR = '#login-submit';
-
-    await page.click(EMAIL_SELECTOR);
-    await page.keyboard.type(CREDS.email);
-
-    await page.click(PASSWORD_SELECTOR);
-    await page.keyboard.type(CREDS.password);
-
-    await page.click(BUTTON_SELECTOR);
-    await page.waitForNavigation();
-    await page.close();
+    await loginCodeHS(page);
 
     // arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
     //TODO: use this to choose which class
@@ -117,6 +103,27 @@ async function start() {
     }));
 
     // console.info(util.inspect(arr_objs_classes, false, null, true));
+
+    await browser.close(); //TODO: uncomment in production
+
+    async function loginCodeHS(pg) {
+        await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
+
+        const EMAIL_SELECTOR = '#login-email';
+        const PASSWORD_SELECTOR = '#login-password';
+        const BUTTON_SELECTOR = '#login-submit';
+
+        await pg.click(EMAIL_SELECTOR);
+        await pg.keyboard.type(CREDS.email);
+
+        await pg.click(PASSWORD_SELECTOR);
+        await pg.keyboard.type(CREDS.password);
+
+        await pg.click(BUTTON_SELECTOR);
+        await pg.waitForNavigation();
+        await pg.close();
+        return 'done';
+    }
 
     async function combinedSteps(classObj) {
         return new Promise(async (a, b) => {
@@ -188,8 +195,6 @@ async function start() {
             })
         });
     }
-
-    await browser.close(); //TODO: uncomment in production
 }
 
 
@@ -309,7 +314,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
 
         await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
         obj.students = await page.evaluate(
-            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
+            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, TEMPLATE_ROSTER) => {
                 //import bottleneck from script tag
                 let Bottleneck = window.Bottleneck;
                 const limiter = new Bottleneck({
@@ -486,8 +491,30 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                     });
                 }));
 
+                //get student emails
+                function fetchStudentEmails() {
+                    return new Promise((resolve1, reject1) => {
+                        let emailRequest = new XMLHttpRequest();
+                        emailRequest.onload = function () {
+                            resolve1(this.responseXML);
+                        };
+                        emailRequest.open("GET", String.format(TEMPLATE_ROSTER, obj.classId));
+                        emailRequest.responseType = "document";
+                        emailRequest.send();
+                    });
+                }
+
+                let rosterDocument = await fetchStudentEmails();
+                console.info('roster document', rosterDocument);
+
+                function sleep(ms) {
+                    return new Promise(resolve => setTimeout(resolve, ms));
+                }
+
+                await sleep(60000);
+
                 return arr_obj_students;
-            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students
+            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, TEMPLATE_ROSTER
         );
         await page.close();
         // console.info('done obj', obj);
