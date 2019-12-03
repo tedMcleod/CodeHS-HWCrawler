@@ -7,14 +7,17 @@ const format = require('string-format');
 const util = require('util');
 const fs = require('fs');
 const pLimit = require('p-limit');
-const networkLimit = pLimit(2);
+const path = require('path');
+const networkLimit = pLimit(1);
 const ioLimit = pLimit(4);
+const mkdirp = require('mkdirp');
+
 
 console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
 if (arr_args.length === 0) {
-    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0', 'false'];
+    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0', 'true', 'false'];
 }
 
 // console.log('arguments', arr_args);
@@ -75,9 +78,10 @@ for (let i = 0; i < teachersCount; i++) {
     })
 }
 
-let boolean_refreshStudentList = arr_args[assignmentsCount + teachersCount + 4];
-console.info('refresh students list?', boolean_refreshStudentList);
-//TODO: implement cache for students list (no need to navigate every time)
+let boolean_useCache = arr_args[assignmentsCount + teachersCount + 4] === 'true';
+console.info('use cache?', boolean_useCache);
+let boolean_buildCache = arr_args[assignmentsCount + teachersCount + 5] === 'true';
+console.info('(re)build cache?', boolean_buildCache);
 
 console.info(date_dueDate);
 console.info(arr_assignments);
@@ -86,7 +90,7 @@ start().then();
 
 async function start() {
     const browser = await puppeteer.launch({
-        headless: false
+        headless: false //TODO: remove for production
     });
     const page = await browser.newPage();
     await page.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
@@ -102,54 +106,25 @@ async function start() {
     await page.keyboard.type(CREDS.password);
 
     await page.click(BUTTON_SELECTOR);
-
     await page.waitForNavigation();
+    await page.close();
 
     // arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
     //TODO: use this to choose which class
 
-    // await Promise.all(arr_objs_classes.map((obj) =>{
-    //     return networkLimit(()=>parseClassPages(obj, arr_objs_classes, browser))
-    // }));
-    //
+    await Promise.all(arr_objs_classes.map((obj) => {
+        return networkLimit(() => combinedSteps(obj))
+    }));
+
     // console.info(util.inspect(arr_objs_classes, false, null, true));
-    //
-    // await Promise.all(arr_objs_classes.map((classObj) => {
-    //     return ioLimit(()=>writeClass(classObj));
-    // }));
 
-    await page.goto('https://codehs.com/lms/assignments/2323/section/92352/progress?');
-    await page.evaluate(()=>{
-        function formatParams(params) {
-            return "?" + Object
-                .keys(params)
-                .map(function (key) {
-                    return key + "=" + encodeURIComponent(params[key])
-                })
-                .join("&")
-        }
-        function getCook(cookiename)
-        {
-            // Get name followed by anything except a semicolon
-            var cookiestring=RegExp(""+cookiename+"[^;]+").exec(document.cookie);
-            // Return everything after the equal sign, or an empty string if the cookie name not found
-            return decodeURIComponent(!!cookiestring ? cookiestring.toString().replace(/^[^=]+./,"") : "");
-        }
-
-        let xhr = new XMLHttpRequest();
-        xhr.onreadystatechange = function() {//Call a function when the state changes.
-            if(xhr.readyState === 4 && xhr.status === 200) {
-                console.info(xhr.response);
-            }
-        };
-        let params = 'teacher_course_id=2323&section_id=92353&module_num=0&method=section_assignment_progress';
-        xhr.open("POST", 'https://codehs.com/core/ajax/section_assignment_progress');
-        xhr.setRequestHeader('x-csrftoken', getCook('csrftoken'));
-        xhr.setRequestHeader('accept', 'application/json, text/javascript, */*; q=0.01');
-        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-        xhr.setRequestHeader('x-request-with', 'XMLHttpRequest');
-        xhr.send(params);
-    });
+    async function combinedSteps(classObj) {
+        return new Promise(async (a, b) => {
+            await parseClassPages(classObj, arr_objs_classes, browser);
+            await writeClass(classObj);
+            a(Date.now());
+        })
+    }
 
     function writeClass(classObj) {
         return new Promise((re, reje) => {
@@ -214,21 +189,56 @@ async function start() {
         });
     }
 
-    // await browser.close(); //TODO: uncomment in production
+    await browser.close(); //TODO: uncomment in production
 }
 
 
 async function parseClassPages(obj, arr_objs_classes, browser) {
     return new Promise(async (resolve, reject) => {
         const page = await browser.newPage();
-        await page.goto(format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId), {
+        let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
+        let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
+        if (boolean_useCache) {
+            await fs.promises.access(cached_modulePath + '/index.html').then(success => {
+                //use cache
+                url_sectionAllModule = `file:${path.join(__dirname, cached_modulePath + '/index.html')}`;
+            }).catch(err => {
+                boolean_useCache = false;
+            });
+        }
+        let pageGoOptions = {
             waitUntil: 'networkidle2',
             timeout: 0
+        };
+        if (boolean_useCache) {
+            pageGoOptions.timeout = 1;
+        }
+        await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
+            if (errObj.name !== 'TimeoutError') {
+                console.info('yikes');
+            }
         });
         await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+        // console.info('build cache ? ', boolean_buildCache);
+        if (boolean_buildCache) {
+            let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+            mkdirp(cached_modulePath, function (err) {
+                if (err) console.error('could not create directory..???');
+                else {
+                    //TODO: If usecache and buildcache both = true, build cache w new res after use cache
+                    fs.writeFile(cached_modulePath + '/index.html', bodyHTML, function (error) {
+                        if (error) {
+                            console.error(error);
+                        } else {
+                            // console.info('wrote file');
+                        }
+                    });
+                }
+            });
+        }
 
         let arr_assignmentsCopy = arr_assignments.slice();
-        let arr_assignmentIDs = await page.evaluate((arr_assignmentsCopy) => {
+        let [arr_assignmentIDs, arr_obj_students] = await page.evaluate((arr_assignmentsCopy) => {
             console.info(arr_assignmentsCopy);
             let arr_IDs = [];
             let children_possibleNodes = document.getElementsByClassName('activity-item');
@@ -252,7 +262,40 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                     }
                 }
             }
-            return arr_IDs;
+
+            let arr_obj_students = [];
+            let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
+
+            for (let i = 0; i < table.length; i++) {
+                let student_firstName = table[i].getAttribute('data-first-name').toString();
+                let student_lastName = table[i].getAttribute('data-last-name').toString();
+                let obj_student = {
+                    firstName: student_firstName,
+                    lastName: student_lastName,
+                    assignments: {}
+                };
+
+                let candidate_assignments = table[i].getElementsByClassName('progress-circle');
+                for (let j = 0; j < candidate_assignments.length; j++) {
+                    let refStr = candidate_assignments[j].href;
+                    let refStrComponents = refStr.split('/');
+                    if (refStr && refStrComponents.length >= 4) {
+                        refStrComponents.slice().some(str => {
+                            if (str.toString().trim().length >= 3) {
+                                if (!str.match(/[a-zA-Z:]/g)) {
+                                    //to parse it even if from cache
+                                    obj_student.id = str;
+                                    return '0';
+                                }
+                            }
+                        });
+                        break;
+                    }
+                }
+                arr_obj_students.push(obj_student);
+            }
+
+            return [arr_IDs, arr_obj_students];
         }, arr_assignmentsCopy);
 
         for (let i = 0; i < arr_assignmentIDs.length; i++) {
@@ -260,9 +303,13 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
             arr_assignmentIDs[i] = temp_split[6];
         }
 
+        if (boolean_useCache) {
+            await page.goto('https://www.codehs.com');
+        }
+
         await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
         obj.students = await page.evaluate(
-            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate) => {
+            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
                 //import bottleneck from script tag
                 let Bottleneck = window.Bottleneck;
                 const limiter = new Bottleneck({
@@ -283,31 +330,8 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                     };
                 }
 
-                let arr_obj_students = [];
-                let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
-
-                for (let i = 0; i < table.length; i++) {
-                    let student_firstName = table[i].getAttribute('data-first-name').toString();
-                    let student_lastName = table[i].getAttribute('data-last-name').toString();
-                    let obj_student = {
-                        firstName: student_firstName,
-                        lastName: student_lastName,
-                        assignments: {}
-                    };
-
-                    let candidate_assignments = table[i].getElementsByClassName('progress-circle');
-                    for (let j = 0; j < candidate_assignments.length; j++) {
-                        let refStr = candidate_assignments[j].href;
-                        if (refStr) {
-                            obj_student.id = refStr.split('/')[4];
-                            break;
-                        }
-                    }
-                    arr_obj_students.push(obj_student);
-                }
-
                 //limits to one student for testing
-                arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                 console.info('fetching student pages', arr_obj_students);
 
@@ -415,21 +439,23 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
 
                                     // get time worked
                                     let selectionField = document.getElementById('assignment-submission-select');
-                                    let submissions = selectionField.getElementsByTagName('option');
-                                    for (let i = 0; i < submissions.length; i++) {
-                                        let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
-                                        //attach date 'hours' modifier
-                                        Date.prototype.addHours = function (h) {
-                                            this.setTime(this.getTime() + (h * 60 * 60 * 1000));
-                                            return this;
-                                        };
-                                        if (submissions[i].innerText.includes('p.m.')) {
-                                            date_submissionDate.addHours(12);
-                                        }
-                                        let value = submissions[i].getAttribute('value');
-                                        let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
-                                        let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
+                                    if (selectionField != null) {
+                                        let submissions = selectionField.getElementsByTagName('option');
+                                        for (let i = 0; i < submissions.length; i++) {
+                                            let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
+                                            //attach date 'hours' modifier
+                                            Date.prototype.addHours = function (h) {
+                                                this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+                                                return this;
+                                            };
+                                            if (submissions[i].innerText.includes('p.m.')) {
+                                                date_submissionDate.addHours(12);
+                                            }
+                                            let value = submissions[i].getAttribute('value');
+                                            let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
+                                            let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
 
+                                        }
                                     }
 
                                     studentObject.assignments['' + key] = {
@@ -449,7 +475,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                                 // console.info(studentObject.id);
                                 // console.info(obj.classId);
                                 // console.info(key);
-
+                                console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                 xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                 xhr.responseType = "document";
                                 xhr.send();
@@ -461,9 +487,14 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                 }));
 
                 return arr_obj_students;
-            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate
+            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students
         );
+        await page.close();
         // console.info('done obj', obj);
         resolve('done at ' + Date.now());
     })
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
