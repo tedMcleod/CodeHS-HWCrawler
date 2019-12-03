@@ -3,7 +3,8 @@ const CREDS = require('./secrets/creds');
 const SECTIONS = require('./secrets/sections');
 const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/time_tracking';
 const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignment/{2}/';
-const TEMPLATE_ROSTER = 'https://codehs.com/section/{0}/roster/info';
+const TEMPLATE_ROSTER_URL = 'https://codehs.com/section/{0}/roster/info';
+const TEMPLATE_GET_CODE_URL = 'https://codehs.com/editor/ajax/get_editor_setup_code?item_id={0}&user_id={1}&method=get_editor_setup_code';
 const format = require('string-format');
 const util = require('util');
 const fs = require('fs');
@@ -17,7 +18,7 @@ console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
 if (arr_args.length === 0) {
-    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0', 'true', 'false'];
+    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0', 'true', 'false', 'true'];
 }
 
 // console.log('arguments', arr_args);
@@ -90,7 +91,7 @@ start().then();
 
 async function start() {
     const browser = await puppeteer.launch({
-        headless: false //TODO: remove for production
+        // headless: false //TODO: remove for production
     });
     const page = await browser.newPage();
     await loginCodeHS(page);
@@ -146,7 +147,7 @@ async function start() {
                 let studentRow = [];
                 studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
                 studentRow.push(classObj.classNum);
-                studentRow.push('TBD'); //TODO: get student email
+                studentRow.push(studentObj.email);
 
                 Number.prototype.padLeft = function (base, chr) {
                     let len = (String(base || 10).length - String(this).length) + 1;
@@ -203,8 +204,19 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
         const page = await browser.newPage();
         let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
         let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
+
+        async function pathExists(path) {
+            return new Promise((resolve1, reject1) => {
+                if (fs.existsSync(path)) {
+                    resolve1(true);
+                } else {
+                    reject1(false);
+                }
+            });
+        }
+
         if (boolean_useCache) {
-            await fs.promises.access(cached_modulePath + '/index.html').then(success => {
+            await pathExists(cached_modulePath + '/index.html').then(success => {
                 //use cache
                 url_sectionAllModule = `file:${path.join(__dirname, cached_modulePath + '/index.html')}`;
             }).catch(err => {
@@ -242,8 +254,69 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
             });
         }
 
+        let rosterPage;
+        if(boolean_useCache){
+            rosterPage = await browser.newPage();
+            await rosterPage.goto('https://codehs.com');
+        }else{
+            rosterPage = page;
+        }
+
+        let obj_studentEmail = await rosterPage.evaluate(async (TEMPLATE_ROSTER_URL, obj) => {
+            //add String.format utility
+            if (!String.format) {
+                String.format = function (format) {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    return format.replace(/{(\d+)}/g, function (match, number) {
+                        return typeof args[number] != 'undefined'
+                            ? args[number]
+                            : match
+                            ;
+                    });
+                };
+            }
+
+            let obj_studentEmail = {};
+
+            //get student emails
+            function fetchStudentEmails() {
+                return new Promise((resolve1, reject1) => {
+                    let emailRequest = new XMLHttpRequest();
+                    emailRequest.onload = function () {
+                        resolve1(this.responseXML);
+                    };
+                    emailRequest.open("GET", String.format(TEMPLATE_ROSTER_URL, obj.classId));
+                    emailRequest.responseType = "document";
+                    emailRequest.send();
+                });
+            }
+
+            let rosterDocument = await fetchStudentEmails();
+            let tmp_table = rosterDocument.getElementById('classset-progress');
+            let rosterTable = tmp_table.getElementsByTagName('table')[0];
+            let rosterRows = rosterTable.getElementsByTagName('tr');
+            for (let i = 0; i < rosterRows.length; i++) {
+                let row = rosterRows[i];
+                if (row.getElementsByTagName('a').length === 0) {
+                    continue;
+                }
+                let studentName = row.getElementsByTagName('a')[0].innerText.trim();
+                let studentEmail = 'none';
+                let tds = row.getElementsByTagName('td');
+                for (let j = 0; j < tds.length; j++) {
+                    if (tds[j].innerText.includes('@student')) {
+                        studentEmail = tds[j].innerText;
+                    }
+                }
+                obj_studentEmail[studentName] = studentEmail;
+            }
+
+            return obj_studentEmail;
+        }, TEMPLATE_ROSTER_URL, obj);
+        if(boolean_useCache) rosterPage.close();
+
         let arr_assignmentsCopy = arr_assignments.slice();
-        let [arr_assignmentIDs, arr_obj_students] = await page.evaluate((arr_assignmentsCopy) => {
+        let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy, obj_studentEmail) => {
             console.info(arr_assignmentsCopy);
             let arr_IDs = [];
             let children_possibleNodes = document.getElementsByClassName('activity-item');
@@ -268,6 +341,10 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                 }
             }
 
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
             let arr_obj_students = [];
             let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
@@ -277,6 +354,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                 let obj_student = {
                     firstName: student_firstName,
                     lastName: student_lastName,
+                    email: obj_studentEmail[student_firstName + ' ' + student_lastName],
                     assignments: {}
                 };
 
@@ -301,7 +379,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
             }
 
             return [arr_IDs, arr_obj_students];
-        }, arr_assignmentsCopy);
+        }, arr_assignmentsCopy, obj_studentEmail);
 
         for (let i = 0; i < arr_assignmentIDs.length; i++) {
             let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
@@ -314,7 +392,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
 
         await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
         obj.students = await page.evaluate(
-            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, TEMPLATE_ROSTER) => {
+            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
                 //import bottleneck from script tag
                 let Bottleneck = window.Bottleneck;
                 const limiter = new Bottleneck({
@@ -491,30 +569,8 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                     });
                 }));
 
-                //get student emails
-                function fetchStudentEmails() {
-                    return new Promise((resolve1, reject1) => {
-                        let emailRequest = new XMLHttpRequest();
-                        emailRequest.onload = function () {
-                            resolve1(this.responseXML);
-                        };
-                        emailRequest.open("GET", String.format(TEMPLATE_ROSTER, obj.classId));
-                        emailRequest.responseType = "document";
-                        emailRequest.send();
-                    });
-                }
-
-                let rosterDocument = await fetchStudentEmails();
-                console.info('roster document', rosterDocument);
-
-                function sleep(ms) {
-                    return new Promise(resolve => setTimeout(resolve, ms));
-                }
-
-                await sleep(60000);
-
                 return arr_obj_students;
-            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, TEMPLATE_ROSTER
+            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students
         );
         await page.close();
         // console.info('done obj', obj);
