@@ -13,7 +13,6 @@ const path = require('path');
 const networkLimit = pLimit(1); //probably wont work scaled up, should be 1 if useCache : false
 const mkdirp = require('mkdirp');
 
-
 console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
@@ -83,6 +82,8 @@ let boolean_useCache = arr_args[assignmentsCount + teachersCount + 4] === 'true'
 console.info('use cache?', boolean_useCache);
 let boolean_buildCache = arr_args[assignmentsCount + teachersCount + 5] === 'true';
 console.info('(re)build cache?', boolean_buildCache);
+let boolean_downloadStudentCode = arr_args[assignmentsCount + teachersCount + 6] === 'true';
+console.info('download students\' code?', boolean_downloadStudentCode);
 
 console.info(date_dueDate);
 console.info(arr_assignments);
@@ -96,7 +97,7 @@ async function start() {
     const page = await browser.newPage();
     await loginCodeHS(page);
 
-    // arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
+    arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
     //TODO: use this to choose which class
 
     await Promise.all(arr_objs_classes.map((obj) => {
@@ -198,10 +199,27 @@ async function start() {
     }
 }
 
+async function writeFileAsync (path, content){
+    return new Promise((resolve, reject) =>{
+        fs.writeFile(path, content, function (err) {
+            if (err) {
+                reject(err);
+            }else{
+                resolve('ok');
+            }
+        })
+    });
+}
 
 async function parseClassPages(obj, arr_objs_classes, browser) {
     return new Promise(async (resolve, reject) => {
         const page = await browser.newPage();
+        const headlessUserAgent = await page.evaluate(() => navigator.userAgent);
+        const chromeUserAgent = headlessUserAgent.replace('HeadlessChrome', 'Chrome');
+        await page.setUserAgent(chromeUserAgent);
+        await page.setExtraHTTPHeaders({
+            'accept-language': 'en-US,en;q=0.8'
+        });
         let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
         let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
 
@@ -227,9 +245,10 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
             waitUntil: 'networkidle2',
             timeout: 0
         };
-        if (boolean_useCache) {
-            pageGoOptions.timeout = 1;
+        if(boolean_useCache){
+            // await page.setJavaScriptEnabled( false );
         }
+        // console.info(url_sectionAllModule);
         await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
             if (errObj.name !== 'TimeoutError') {
                 console.info('yikes');
@@ -279,6 +298,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
             let obj_studentEmail = {};
 
             //get student emails
+            //TODO: Could cache but not necessary because response loads fast
             function fetchStudentEmails() {
                 return new Promise((resolve1, reject1) => {
                     let emailRequest = new XMLHttpRequest();
@@ -315,9 +335,14 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
         }, TEMPLATE_ROSTER_URL, obj);
         if(boolean_useCache) rosterPage.close();
 
+        // page.on('console', consoleObj => console.log(consoleObj.text()));
+        // let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+        // await writeFileAsync('./out/test/index.html', bodyHTML);
+
         let arr_assignmentsCopy = arr_assignments.slice();
         let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy, obj_studentEmail) => {
             console.info(arr_assignmentsCopy);
+
             let arr_IDs = [];
             let children_possibleNodes = document.getElementsByClassName('activity-item');
             for (let i = 0; i < children_possibleNodes.length; i++) {
@@ -348,6 +373,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
             let arr_obj_students = [];
             let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
+            console.info('numStudents', table.length);
             for (let i = 0; i < table.length; i++) {
                 let student_firstName = table[i].getAttribute('data-first-name').toString();
                 let student_lastName = table[i].getAttribute('data-last-name').toString();
@@ -359,6 +385,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                 };
 
                 let candidate_assignments = table[i].getElementsByClassName('progress-circle');
+                // console.info('num student-link candidates', candidate_assignments.length);
                 for (let j = 0; j < candidate_assignments.length; j++) {
                     let refStr = candidate_assignments[j].href;
                     let refStrComponents = refStr.split('/');
@@ -368,6 +395,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                                 if (!str.match(/[a-zA-Z:]/g)) {
                                     //to parse it even if from cache
                                     obj_student.id = str;
+                                    // console.info('got student id', str);
                                     return '0';
                                 }
                             }
@@ -420,7 +448,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
 
                 // fetch student's page
                 await Promise.all(arr_obj_students.map(async (studentObject) => {
-                    console.info('processing', studentObject);
+                    // console.info('processing', studentObject);
                     await limiter.schedule(() => {
                         const allTasks = arr_assignmentIDs.map(async (key) => {
                             return new Promise((res, rej) => {
@@ -558,7 +586,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                                 // console.info(studentObject.id);
                                 // console.info(obj.classId);
                                 // console.info(key);
-                                console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                 xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                 xhr.responseType = "document";
                                 xhr.send();
