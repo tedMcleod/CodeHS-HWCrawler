@@ -13,7 +13,7 @@ const path = require('path');
 const networkLimit = pLimit(1); //probably wont work scaled up, should be 1 if useCache : false
 const mkdirp = require('mkdirp');
 
-console.log('loaded index.js');
+// console.log('loaded index.js');
 let arr_args = process.argv.slice(2);
 
 if (arr_args.length === 0) {
@@ -97,7 +97,7 @@ async function start() {
     const page = await browser.newPage();
     await loginCodeHS(page);
 
-    arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
+    // arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
     //TODO: use this to choose which class
 
     await Promise.all(arr_objs_classes.map((obj) => {

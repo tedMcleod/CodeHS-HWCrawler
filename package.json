@@ -1,5 +1,5 @@
 {
-  "name": "extra_codehscrawler",
+  "name": "code_hs_crawler",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -7,14 +7,19 @@
     "bottleneck": "^2.19.5",
     "jsdom": "^15.2.1",
     "mkdirp": "^0.5.1",
+    "ora": "^4.0.3",
     "p-limit": "^2.2.1",
+    "prompts": "^2.3.0",
     "puppeteer": "^2.0.0",
-    "string-format": "^2.0.0"
+    "string-format": "^2.0.0",
+    "validator": "^12.1.0",
+    "chalk": "latest"
   },
   "devDependencies": {},
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "node init.js"
   },
-  "author": "EZ",
+  "author": "JP",
   "license": "ISC"
 }
