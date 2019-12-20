@@ -9,41 +9,86 @@ const puppeteer = require('puppeteer');
 let sessionData = {};
 
 (async () => {
-    sessionData = await prompts([{
-            type: 'text',
-            name: 'text_codehs-email',
-            message: 'What is your CodeHS email?',
-            validate: value => validator.isEmail(value) ? true : 'Enter a valid email'
-        },
+    const onCancel = prompt => {
+        console.log(`${chalk.red('Canceling session')}`);
+        process.exit();
+    };
+    sessionData = await prompts([
+            {
+                type: 'text',
+                name: 'text_codehs-email',
+                message: 'What is your CodeHS email?',
+                validate: value => validator.isEmail(value) ? true : 'Enter a valid email'
+            },
             {
                 type: 'password',
                 name: 'text_codehs-password',
                 message: 'What is your CodeHS password?'
-            },
-            {
-                type: 'confirm',
-                name: 'boolean_save-password',
-                message: 'Save password?'
             }
-        ]
+        ], {onCancel}
     );
 
-    const spinner = ora({text: `${chalk.white.bold('Building initial CodeHS cache')}`}).start();
+    const spinner = ora({text: `${chalk.white.bold('Testing credentials...')}`}).start();
 
     const browser = await puppeteer.launch({
-        headless: false //TODO: remove for production
+        // headless: false //TODO: remove for production
     });
 
     const page = await browser.newPage();
 
-    await loginCodeHS(page).then(suc =>{
-        spinner.succeed(`${chalk.white.bold('Cache built')}`);
-    }).catch(err=> {
+    await loginCodeHS(page).then(suc => {
+        spinner.succeed(`${chalk.white.bold('Password success')}`);
+    }).catch(err => {
         spinner.fail(`${chalk.red('Login credentials invalid...')}`);
-        spinner.fail(`${chalk.red.bold('Cache canceled')}`);
+        process.exit();
     });
 
+    let saveData = await prompts([
+        {
+            type: 'confirm',
+            name: 'save',
+            message: 'Save credentials?'
+        },
+        {
+            type: prev => prev ? 'select' : null,
+            name: 'method',
+            message: 'Security level:',
+            choices: [
+                {
+                    title: 'Pin', description: '4 Digits Code', value: 'pin',
+                },
+                {
+                    title: 'Password', description: 'Alphanumerical (1+)', value: 'pwd',
+                },
+                {
+                    title: 'None', description: 'Super Simple', value: 'none',
+                }
+            ],
+            hint: '- up/down to navigate. return to submit',
+            initial: 0
+        }
+    ]);
 
+    let {save} = saveData;
+    if (save) {
+        let {method} = saveData;
+        if(method === 'none'){
+            await writeFileAsync('secrets/creds.json', JSON.stringify({
+                method: 'none',
+                email: sessionData['text_codehs-email'],
+                password: sessionData['text_codehs-password']
+            }))
+        }else if(method === 'pin'){
+
+        }else if(method === 'pwd'){
+
+        }else{
+            console.err('invalid method detected. ');
+            process.exit(0);
+        }
+    }
+
+    browser.close();
 })();
 
 function loginCodeHS(pg) {
@@ -68,12 +113,28 @@ function loginCodeHS(pg) {
             return document.getElementsByClassName('form-alert-red').length;
         });
 
-        // await pg.close();
+        await pg.close();
 
-        if(warningsLength.length === 0){
+        if (warningsLength === 0) {
             resolve(1);
-        }else{
+        } else {
             reject(warningsLength);
         }
+    });
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function writeFileAsync (path, content){
+    return new Promise((resolve, reject) =>{
+        fs.writeFile(path, content, function (err) {
+            if (err) {
+                reject(err);
+            }else{
+                resolve('ok');
+            }
+        })
     });
 }
