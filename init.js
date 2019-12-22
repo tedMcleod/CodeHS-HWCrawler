@@ -5,6 +5,7 @@ const prompts = require('prompts'),
     fs = require('fs'),
     os = require('os'),
     path = require('path'),
+    mkdirp = require('mkdirp'),
     puppeteer = require('puppeteer');
 
 let crypto;
@@ -15,19 +16,30 @@ try {
     process.exit(0);
 }
 
-let sessionData = {};
+let sessionData = {rebuildCache: false};
 
-// """main function"""
+/*
+             _     _ _            _        _   _                   _     _                   _          ____ _        _             __ __                     __
+ _ __  _   _| |__ | (_) ___   ___| |_ __ _| |_(_) ___  __   _____ (_) __| |  _ __ ___   __ _(_)_ __    / / _\ |_ _ __(_)_ __   __ _| _|_ |   __ _ _ __ __ _ __\ \
+| '_ \| | | | '_ \| | |/ __| / __| __/ _` | __| |/ __| \ \ / / _ \| |/ _` | | '_ ` _ \ / _` | | '_ \  | |\ \| __| '__| | '_ \ / _` | | | |  / _` | '__/ _` / __| |
+| |_) | |_| | |_) | | | (__  \__ \ || (_| | |_| | (__   \ V / (_) | | (_| | | | | | | | (_| | | | | | | |_\ \ |_| |  | | | | | (_| | | | | | (_| | | | (_| \__ \ |
+| .__/ \__,_|_.__/|_|_|\___| |___/\__\__,_|\__|_|\___|   \_/ \___/|_|\__,_| |_| |_| |_|\__,_|_|_| |_| | |\__/\__|_|  |_|_| |_|\__, | | | |  \__,_|_|  \__, |___/ |
+|_|                                                                                                    \_\                    |___/|__|__|            |___/   /_/
+
+ */
 (async () => {
     if (savedCredsExist()) {
         await loadCredentialsPrompts();
-        await testCredentials().catch(() => codeHSCredInvalidExit);
+        await testCredentials().catch((quit) => codeHSCredInvalidExit);
     } else {
         await setCredentialsPrompts();
-        await testCredentials().catch(() => codeHSCredInvalidExit);
+        await testCredentials().catch((quit) => codeHSCredInvalidExit);
         await promptSavePwdOptions();
+        await continueConfirmation().catch((quit) => doneSetupExit);
     }
 
+    await promptAssignmentOptions();
+    
 
     /*
           _    _ ______ _      _____  ______ _____   _____
@@ -38,6 +50,70 @@ let sessionData = {};
          |_|  |_|______|______|_|    |______|_|  \_\_____/
 
      */
+
+    async function promptAssignmentOptions() {
+        return new Promise(async (resolve, reject) => {
+            const response = await prompts([
+                    {
+                        type: 'list',
+                        name: 'arr_assignments',
+                        message: 'Enter the assignment names',
+                        initial: '',
+                        separator: ','
+                    },
+                    {
+                        type: 'date',
+                        name: 'date_dueDate',
+                        message: 'When are these assignments due?',
+                        initial: new Date(2019, 1, 11),
+                        mask: 'YYYY-MM-DD HH:mm'
+                    },
+                    {
+                        type: 'multiselect',
+                        name: 'arr_classes',
+                        message: 'Pick which classes to grade',
+                        choices: [
+                            {title: 'All ***REMOVED***', value: 'm0'},
+                            {title: 'All ***REMOVED***', value: 's0'},
+                            {title: 'P1 ***REMOVED***', value: 'm1'},
+                            {title: 'P4 ***REMOVED***', value: 'm4'},
+                            {title: 'P5 ***REMOVED***', value: 'm5'},
+                            {title: 'P2 ***REMOVED***', value: 's2'},
+                            {title: 'P3 ***REMOVED***', value: 's3'},
+                            {title: 'P6 ***REMOVED***', value: 's6'},
+                        ],
+                        min: 1,
+                        hint: '- Space to select. Return to submit',
+                        instructions: false
+                    }
+                ]
+            )
+
+
+        });
+    }
+
+    function doneSetupExit() {
+        console.info(`That\'s alright, ${chalk.bold.white('npm start index.js')} to run again!`);
+        process.exit();
+    }
+
+    async function continueConfirmation() {
+        return new Promise(async (resolve, reject) => {
+            const response = await prompts({
+                type: 'confirm',
+                name: 'tmp_confirm',
+                message: 'Continue to generating class assignments data?'
+            });
+
+            let {tmp_confirm} = response;
+            if (tmp_confirm) {
+                resolve(1);
+            } else {
+                reject(0);
+            }
+        })
+    }
 
     function codeHSCredInvalidExit() {
         console.info('Perhaps you changed your credentials on codehs.com?');
@@ -118,7 +194,7 @@ let sessionData = {};
         }
     }
 
-    function onCancel(prompt){
+    function onCancel(prompt) {
         console.log(`${chalk.red('Canceling session')}`);
         process.exit();
     }
@@ -141,7 +217,7 @@ let sessionData = {};
         );
     }
 
-    async function promptSavePwdOptions(){
+    async function promptSavePwdOptions() {
         let resizedIV = Buffer.allocUnsafe(16),
             iv = crypto
                 .createHash("sha256")
@@ -230,6 +306,7 @@ let sessionData = {};
             }
 
             //finally, write finalized email/password to file
+
             await writeFileAsync('secrets/creds.json', JSON.stringify({
                 method: method,
                 email: email,
@@ -241,7 +318,7 @@ let sessionData = {};
 
 function loginCodeHS(pg) {
     return new Promise(async (resolve, reject) => {
-        // resolve('assume credentials are correct'); //TODO: remove on prod
+        resolve('assume credentials are correct'); //TODO: remove on prod
         let warningsLength;
         try {
             await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
@@ -282,6 +359,7 @@ function sleep(ms) {
 
 async function writeFileAsync(path, content) {
     return new Promise((resolve, reject) => {
+        ensureDirectoryExistence(path);
         fs.writeFile(path, content, function (err) {
             if (err) {
                 reject(err);
@@ -292,6 +370,19 @@ async function writeFileAsync(path, content) {
     });
 }
 
+function ensureDirectoryExistence(filePath) {
+    let dirname = path.dirname(filePath);
+    if (fs.existsSync(dirname)) {
+        return true;
+    }
+    ensureDirectoryExistence(dirname);
+    fs.mkdirSync(dirname);
+}
+
 function savedCredsExist() {
-    return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
+    try {
+        return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
+    } catch {
+        return false;
+    }
 }
