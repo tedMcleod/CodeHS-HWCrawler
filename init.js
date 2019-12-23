@@ -18,7 +18,8 @@ try {
     process.exit(0);
 }
 
-let sessionData = {rebuildCache: false};
+let sessionData = {rebuildCache: false},
+    arr_objs_classes = [];
 
 /*
              _     _ _            _        _   _                   _     _                   _          ____ _        _             __ __                     __
@@ -29,6 +30,7 @@ let sessionData = {rebuildCache: false};
 |_|                                                                                                    \_\                    |___/|__|__|            |___/   /_/
 
  */
+
 (async () => {
     await startPuppeteer();
 
@@ -42,11 +44,16 @@ let sessionData = {rebuildCache: false};
         await continueConfirmation().catch((quit) => doneSetupExit);
     }
 
-    if (!savedSectionsIDExist()) {
+    if (savedSectionsIDExist()) {
+        await loadSavedSectionIDs();
+    }else{
         await parseSectionIDs();
     }
 
     await promptAssignmentOptions();
+
+    await assembleClassQueues();
+
 
 
 
@@ -63,6 +70,53 @@ let sessionData = {rebuildCache: false};
 
      */
 
+    async function assembleClassQueues(){
+        return new Promise((resolve, reject)=> {
+            const spinner = ora({text: `${chalk.bold('Assembling parsing queue')}`}).start();
+
+            let {arr_classes} = sessionData;
+            let {sections} = sessionData;
+
+            let arr_completed = [];
+            arr_classes.forEach(obj => {
+                let teacherName = obj.split('|')[0];
+                let classIdentifier = obj.split('|')[1];
+                if(classIdentifier === '0'){
+                    arr_completed.push(teacherName);
+                    for (let classNum in sections[teacherName].classes) {
+                        if (!sections[teacherName].classes.hasOwnProperty(classNum)) continue;
+                        let obj_todo = {
+                            teacherName: teacherName,
+                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classNum]),
+                            classNum: classNum,
+                            sectionId: sections[teacherName].id,
+                            classId: sections[teacherName].classes[classNum],
+                            students: []
+                        };
+                        arr_objs_classes.push(obj_todo);
+                    }
+                }else{
+                    if(!arr_completed.includes(teacherName)){
+                        let obj_todo = {
+                            teacherName: teacherName,
+                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classIdentifier]),
+                            classNum: classIdentifier,
+                            sectionId: sections[teacherName].id,
+                            classId: sections[teacherName].classes[classIdentifier],
+                            students: []
+                        };
+                        arr_objs_classes.push(obj_todo);
+                    }
+                }
+            });
+            spinner.succeed(`${chalk.bold('Parse queue assembled')}`);
+            resolve(1);
+        })
+    }
+
+    async function loadSavedSectionIDs(){
+        sessionData.sections = require('./secrets/sections.json');
+    }
 
     async function parseSectionIDs() {
         const spinner = ora({text: `${chalk.bold('Parsing section IDs...')}`}).start();
@@ -119,26 +173,13 @@ let sessionData = {rebuildCache: false};
         // console.info(sections);
         await writeFileAsync('./secrets/sections.json', JSON.stringify(sections));
 
+        sessionData.sections = sections;
+
         await pg.close();
 
         spinner.succeed(`${chalk.bold('Section IDs saved in ./secrets/sections.json')}`);
     }
 
-    async function startPuppeteer() {
-        browser = await puppeteer.launch({
-            // headless: false //TODO: remove for production
-        });
-    }
-
-    async function stopPuppeteer() {
-        try {
-            await browser.close();
-        } catch (e) {
-            // oop
-        } finally {
-            await browser.close();
-        }
-    }
 
     async function promptAssignmentOptions() {
         return new Promise(async (resolve, reject) => {
@@ -148,7 +189,8 @@ let sessionData = {rebuildCache: false};
                         name: 'arr_assignments',
                         message: `Enter assignment names (separated by ${chalk.bold(',')})`,
                         initial: '',
-                        separator: ','
+                        separator: ',',
+                        validate: val => val.toString().length > 0 ? true: 'Enter at least one assignment!'
                     },
                     {
                         type: 'date',
@@ -169,18 +211,36 @@ let sessionData = {rebuildCache: false};
                 ]
             );
 
+            sessionData['date_dueDate'] = response['date_dueDate'];
+            sessionData['arr_assignments'] = response['arr_assignments'];
+            sessionData['arr_classes'] = response['arr_classes'];
+
             resolve('i');
 
             function buildOptions () {
-                if(require('./secrets/sections.json')){
-                    let sections = require ('./secrets/sections.json');
-                    console.info(sections);
-                }else{
-                    // add a manual mode ?
+                let options = [];
+                let {sections} = sessionData;
+                for (let key in sections) {
+                    if (sections.hasOwnProperty(key)) {
+                        options.push({
+                            title: `All ${key} Classes`, value: `${key}|0`
+                        })
+                    }
                 }
-                return [{
-                    title: 'All ___', value: '_0'
-                }];
+
+                //run for-loop again to preserve ordering
+                for (let key in sections) {
+                    if (sections.hasOwnProperty(key)) {
+
+                        //'...' deconstructs the mapped array into the options array
+                        options.push(...Object.keys(sections[key].classes).map(pNum => {
+                            return {
+                                title: `P${pNum} ${key}`, value: `${key}|${pNum}`
+                            }
+                        }));
+                    }
+                }
+                return options;
             }
         });
     }
@@ -207,6 +267,23 @@ let sessionData = {rebuildCache: false};
         })
     }
 
+
+    async function startPuppeteer() {
+        browser = await puppeteer.launch({
+            // headless: false //TODO: remove for production
+        });
+    }
+
+    async function stopPuppeteer() {
+        try {
+            await browser.close();
+        } catch (e) {
+            // oop
+        } finally {
+            await browser.close();
+        }
+    }
+
     function codeHSCredInvalidExit() {
         console.info('Perhaps you changed your credentials on codehs.com?');
         process.exit();
@@ -219,7 +296,9 @@ let sessionData = {rebuildCache: false};
             const page = await browser.newPage();
 
             await loginCodeHS(page).then(async suc => {
-                await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                if(!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))){
+                    await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                }
                 spinner.succeed(`${chalk.bold('Login credentials valid')}`);
             }).catch(err => {
                 spinner.fail(`${chalk.red('Login credentials invalid...')}`);
@@ -405,7 +484,7 @@ let sessionData = {rebuildCache: false};
 
 function loginCodeHS(pg) {
     return new Promise(async (resolve, reject) => {
-        // resolve('assume credentials are correct'); //TODO: remove on prod
+        resolve('assume credentials are correct'); //TODO: remove on prod
         let warningsLength;
         let teacherID;
         try {

@@ -184,9 +184,8 @@ async function start() {
                 content_rows.push(studentRow);
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
-            if (!fs.existsSync('./out/data')) {
-                fs.mkdirSync('./out/data');
-            }
+
+            ensureDirectoryExistence('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv');
             fs.writeFile('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv', csvContent, function (err) {
                 if (err) {
                     reje('failed');
@@ -199,17 +198,15 @@ async function start() {
     }
 }
 
-async function writeFileAsync (path, content){
-    return new Promise((resolve, reject) =>{
-        fs.writeFile(path, content, function (err) {
-            if (err) {
-                reject(err);
-            }else{
-                resolve('ok');
-            }
-        })
-    });
+function ensureDirectoryExistence(filePath) {
+    let dirname = path.dirname(filePath);
+    if (fs.existsSync(dirname)) {
+        return true;
+    }
+    ensureDirectoryExistence(dirname);
+    fs.mkdirSync(dirname);
 }
+
 
 async function parseClassPages(obj, arr_objs_classes, browser) {
     return new Promise(async (resolve, reject) => {
@@ -460,7 +457,24 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                                     let problemName = document.title.split('|')[0].trim();
 
                                     //get first try date/time
-                                    let startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
+                                    let startedText;
+                                    try {
+                                        startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
+                                    }catch{
+                                        studentObject.assignments['' + key] = {
+                                            problemName: problemName,
+                                            firstTryDate: '--',
+                                            firstTryTime: '--',
+                                            timeWorkedBeforeDue: '--',
+                                            timeWorkedTotal: '--',
+                                            onTimeStatus: '--',
+                                            problemStatus: 'Problem Removed',
+                                            pointsAwarded: '--',
+                                            maxPoints: '--'
+                                        };
+
+                                        res(1);
+                                    }
                                     startedText = startedText.trim().substring(11).trim();
                                     let date_startDate = new Date(startedText.substring(0, startedText.length - 4));
                                     //attach date 'hours' modifier
