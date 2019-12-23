@@ -79,7 +79,7 @@ public class Main {
             String commandLineArguments = " ";
             commandLineArguments += textField_dueDate.getText().trim() + " ";
             commandLineArguments += encodeAssignments(assignments) + " ";
-            commandLineArguments += "2 m0 s0"; //two items, m0 -> ***REMOVED*** all periods, s0 ***REMOVED*** all periods
+            commandLineArguments += "2 m0 s0"; //two items, m0 -> mcleod all periods, s0 sullivan all periods
             try {
                 final Process p = Runtime.getRuntime().exec("node index.js" + commandLineArguments);
                 new Thread(() -> {

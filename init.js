@@ -6,9 +6,11 @@ const prompts = require('prompts'),
     os = require('os'),
     path = require('path'),
     mkdirp = require('mkdirp'),
-    puppeteer = require('puppeteer');
+    puppeteer = require('puppeteer'),
+    format = require('string-format'),
+    links = require('./templates/links');
 
-let crypto;
+let crypto, browser;
 try {
     crypto = require('crypto');
 } catch (err) {
@@ -28,6 +30,8 @@ let sessionData = {rebuildCache: false};
 
  */
 (async () => {
+    await startPuppeteer();
+
     if (savedCredsExist()) {
         await loadCredentialsPrompts();
         await testCredentials().catch((quit) => codeHSCredInvalidExit);
@@ -38,8 +42,16 @@ let sessionData = {rebuildCache: false};
         await continueConfirmation().catch((quit) => doneSetupExit);
     }
 
+    if (!savedSectionsIDExist()) {
+        await parseSectionIDs();
+    }
+
     await promptAssignmentOptions();
-    
+
+
+
+
+    await stopPuppeteer();
 
     /*
           _    _ ______ _      _____  ______ _____   _____
@@ -51,13 +63,90 @@ let sessionData = {rebuildCache: false};
 
      */
 
+
+    async function parseSectionIDs() {
+        const spinner = ora({text: `${chalk.bold('Parsing section IDs...')}`}).start();
+
+        const pg = await browser.newPage();
+        let teacherID;
+        if (require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
+            teacherID = require('./secrets/teacher.json').teacherID;
+        } else {
+
+            // just in case the login step was somehow skipped??
+            // or corrupted data ig
+            const response = await prompts({
+                type: 'number',
+                name: 'teacherID',
+                message: 'Enter your teacherID (found in url after logging in)'
+            });
+
+            teacherID = response.teacherID;
+        }
+
+        await pg.goto(format(links.teachersPage, teacherID), {waitUntil: 'networkidle2'});
+
+        // make this part optional (could be manual) b/c not everyone has same naming formats
+        let sections = await pg.evaluate(()=> {
+            let tmp_arr_secs = document.getElementsByClassName('teachercourse-header');
+
+            let sections = {};
+
+            for (let i = 0; i < tmp_arr_secs.length; i++) {
+                let container = tmp_arr_secs[i].getElementsByClassName('course-title')[0];
+
+                let name = container.innerHTML.toString().trim().substring(0, container.innerHTML.toString().trim().indexOf(' '));
+                // console.info(name);
+                let tmp_id_split = container.href.toString().split('/');
+                let teacherURL = tmp_id_split[tmp_id_split.length-1];
+                let selectors = document.querySelectorAll('[data-teacher-course-id="'+ teacherURL +'"]');
+                let teacherObj = {
+                    id: teacherURL
+                };
+                let classesObj = {};
+                for (let j = 0; j < selectors.length; j++) {
+                    let name = selectors[j].getAttribute('data-dropdown-section-name');
+                    let classNum = name.substring(1, name.indexOf(' '));
+                    classesObj[classNum + ''] = selectors[j].getAttribute('data-class-id');
+                }
+                teacherObj.classes = classesObj;
+                sections[name + ''] = teacherObj;
+            }
+
+            return sections;
+        });
+
+        // console.info(sections);
+        await writeFileAsync('./secrets/sections.json', JSON.stringify(sections));
+
+        await pg.close();
+
+        spinner.succeed(`${chalk.bold('Section IDs saved in ./secrets/sections.json')}`);
+    }
+
+    async function startPuppeteer() {
+        browser = await puppeteer.launch({
+            // headless: false //TODO: remove for production
+        });
+    }
+
+    async function stopPuppeteer() {
+        try {
+            await browser.close();
+        } catch (e) {
+            // oop
+        } finally {
+            await browser.close();
+        }
+    }
+
     async function promptAssignmentOptions() {
         return new Promise(async (resolve, reject) => {
             const response = await prompts([
                     {
                         type: 'list',
                         name: 'arr_assignments',
-                        message: 'Enter the assignment names',
+                        message: `Enter assignment names (separated by ${chalk.bold(',')})`,
                         initial: '',
                         separator: ','
                     },
@@ -72,29 +161,32 @@ let sessionData = {rebuildCache: false};
                         type: 'multiselect',
                         name: 'arr_classes',
                         message: 'Pick which classes to grade',
-                        choices: [
-                            {title: 'All ***REMOVED***', value: 'm0'},
-                            {title: 'All ***REMOVED***', value: 's0'},
-                            {title: 'P1 ***REMOVED***', value: 'm1'},
-                            {title: 'P4 ***REMOVED***', value: 'm4'},
-                            {title: 'P5 ***REMOVED***', value: 'm5'},
-                            {title: 'P2 ***REMOVED***', value: 's2'},
-                            {title: 'P3 ***REMOVED***', value: 's3'},
-                            {title: 'P6 ***REMOVED***', value: 's6'},
-                        ],
+                        choices: buildOptions(),
                         min: 1,
                         hint: '- Space to select. Return to submit',
                         instructions: false
                     }
                 ]
-            )
+            );
 
+            resolve('i');
 
+            function buildOptions () {
+                if(require('./secrets/sections.json')){
+                    let sections = require ('./secrets/sections.json');
+                    console.info(sections);
+                }else{
+                    // add a manual mode ?
+                }
+                return [{
+                    title: 'All ___', value: '_0'
+                }];
+            }
         });
     }
 
     function doneSetupExit() {
-        console.info(`That\'s alright, ${chalk.bold.white('npm start index.js')} to run again!`);
+        console.info(`That\'s alright, ${chalk.bold('npm start index.js')} to run again!`);
         process.exit();
     }
 
@@ -122,22 +214,17 @@ let sessionData = {rebuildCache: false};
 
     async function testCredentials() {
         return new Promise(async (resolve, reject) => {
-            const spinner = ora({text: `${chalk.white.bold('Testing credentials...')}`}).start();
-
-            const browser = await puppeteer.launch({
-                // headless: false //TODO: remove for production
-            });
+            const spinner = ora({text: `${chalk.bold('Testing credentials...')}`}).start();
 
             const page = await browser.newPage();
 
-            await loginCodeHS(page).then(suc => {
-                spinner.succeed(`${chalk.white.bold('Password success')}`);
+            await loginCodeHS(page).then(async suc => {
+                await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                spinner.succeed(`${chalk.bold('Login credentials valid')}`);
             }).catch(err => {
                 spinner.fail(`${chalk.red('Login credentials invalid...')}`);
                 reject(0);
             });
-
-            await browser.close();
 
             resolve(1);
         })
@@ -318,8 +405,9 @@ let sessionData = {rebuildCache: false};
 
 function loginCodeHS(pg) {
     return new Promise(async (resolve, reject) => {
-        resolve('assume credentials are correct'); //TODO: remove on prod
+        // resolve('assume credentials are correct'); //TODO: remove on prod
         let warningsLength;
+        let teacherID;
         try {
             await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
 
@@ -337,6 +425,11 @@ function loginCodeHS(pg) {
 
             await pg.waitForNavigation();
 
+            teacherID = await pg.evaluate(() => {
+                let urlSplit = window.location.href.toString().split('/');
+                return urlSplit[urlSplit.length - 1];
+            });
+
             warningsLength = await pg.evaluate(() => {
                 return document.getElementsByClassName('form-alert-red').length;
             });
@@ -346,7 +439,7 @@ function loginCodeHS(pg) {
             reject(-1);
         }
         if (warningsLength === 0) {
-            resolve(1);
+            resolve(teacherID);
         } else {
             reject(warningsLength);
         }
@@ -382,6 +475,14 @@ function ensureDirectoryExistence(filePath) {
 function savedCredsExist() {
     try {
         return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
+    } catch {
+        return false;
+    }
+}
+
+function savedSectionsIDExist() {
+    try {
+        return fs.existsSync(path.join(__dirname, '/secrets/sections.json'));
     } catch {
         return false;
     }
