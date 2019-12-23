@@ -3,12 +3,12 @@ const prompts = require('prompts'),
     ora = require('ora'),
     chalk = require('chalk'),
     fs = require('fs'),
-    os = require('os'),
     path = require('path'),
-    mkdirp = require('mkdirp'),
     puppeteer = require('puppeteer'),
     format = require('string-format'),
-    links = require('./templates/links');
+    links = require('./templates/links'),
+    pLimit = require('p-limit'),
+    netLimit = pLimit(1);
 
 let crypto, browser;
 try {
@@ -46,7 +46,7 @@ let sessionData = {rebuildCache: false},
 
     if (savedSectionsIDExist()) {
         await loadSavedSectionIDs();
-    }else{
+    } else {
         await parseSectionIDs();
     }
 
@@ -54,8 +54,7 @@ let sessionData = {rebuildCache: false},
 
     await assembleClassQueues();
 
-
-
+    await parseEachClassObj();
 
 
     await stopPuppeteer();
@@ -70,8 +69,506 @@ let sessionData = {rebuildCache: false},
 
      */
 
-    async function assembleClassQueues(){
-        return new Promise((resolve, reject)=> {
+    async function parseEachClassObj() {
+        await Promise.all(arr_objs_classes.map((obj) => {
+            return netLimit(() => combinedSteps(obj))
+        }));
+    }
+
+    async function combinedSteps(classObj) {
+        return new Promise(async (a, b) => {
+            const spinner = ora({text: `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Preparing...`)}`}).start();
+            await parseClassPages(classObj, arr_objs_classes, browser, spinner);
+            await writeClass(classObj);
+            spinner.succeed(`${chalk.bold(`./out/data/${classObj.teacherName + '_P' + classObj.classNum}.csv was saved`)}`);
+            a(Date.now());
+        })
+    }
+
+    function writeClass(classObj) {
+        return new Promise((re, reje) => {
+            let {date_dueDate, arr_assignments} = sessionData;
+            let content_rows = [];
+            let headers = ['Name', 'Period', 'E-mail'];
+            arr_assignments.forEach(assignmentName => {
+                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
+            });
+            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
+            content_rows.push(headers);
+            classObj.students.forEach(studentObj => {
+                let studentRow = [];
+                studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
+                studentRow.push(classObj.classNum);
+                studentRow.push(studentObj.email);
+
+                Number.prototype.padLeft = function (base, chr) {
+                    let len = (String(base || 10).length - String(this).length) + 1;
+                    return len > 0 ? new Array(len).join(chr || '0') + this : this;
+                };
+
+                let totalAwarded = 0;
+                let totalPossible = 0;
+
+                Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                    studentRow.push(studentObj.assignments[assignmentIDs].problemName);
+                    let d = date_dueDate;
+                    studentRow.push([(d.getMonth() + 1).padLeft(),
+                            d.getDate().padLeft(),
+                            d.getFullYear()].join('/') + ' ' +
+                        [d.getHours().padLeft(),
+                            d.getMinutes().padLeft(),
+                            d.getSeconds().padLeft()].join(':'));
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
+                    studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
+                    studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
+                    studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
+                    totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
+                    totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
+                });
+
+                studentRow.push(totalAwarded);
+                studentRow.push(totalPossible);
+                studentRow.push('tbd');
+                content_rows.push(studentRow);
+            });
+            let csvContent = content_rows.map(e => e.join(",")).join("\n");
+
+            ensureDirectoryExistence('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv');
+            fs.writeFile('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv', csvContent, function (err) {
+                if (err) {
+                    reje('failed');
+                    return console.log(err);
+                }
+                // console.log(classObj.teacherName + '_P' + classObj.classNum + '.csv was saved');
+                re(classObj.teacherName + '_P' + classObj.classNum + '.csv ');
+            })
+        });
+    }
+
+    async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
+        return new Promise(async (resolve, reject) => {
+            let {date_dueDate, arr_assignments} = sessionData;
+            const page = await browser.newPage();
+            const headlessUserAgent = await page.evaluate(() => navigator.userAgent);
+            const chromeUserAgent = headlessUserAgent.replace('HeadlessChrome', 'Chrome');
+            await page.setUserAgent(chromeUserAgent);
+            await page.setExtraHTTPHeaders({
+                'accept-language': 'en-US,en;q=0.8'
+            });
+            let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
+            let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
+
+            async function pathExists(path) {
+                return new Promise((resolve1, reject1) => {
+                    if (fs.existsSync(path)) {
+                        resolve1(true);
+                    } else {
+                        reject1(false);
+                    }
+                });
+            }
+
+            //TODO: JUST GET RID OF THESE VARIABLES
+            let boolean_useCache = true;
+            let boolean_buildCache = false;
+
+            if (boolean_useCache) {
+                await pathExists(cached_modulePath + '/index.html').then(success => {
+                    //use cache
+                    url_sectionAllModule = `file:${path.join(__dirname, cached_modulePath + '/index.html')}`;
+                }).catch(err => {
+                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
+                    boolean_useCache = false;
+                    boolean_buildCache = true;
+                });
+            }
+            let pageGoOptions = {
+                waitUntil: 'networkidle2',
+                timeout: 0
+            };
+            if (boolean_useCache) {
+                // await page.setJavaScriptEnabled( false );
+            }
+            // console.info(url_sectionAllModule);
+            await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
+                if (errObj.name !== 'TimeoutError') {
+                    console.info('yikes');
+                }
+            });
+            await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+            // console.info('build cache ? ', boolean_buildCache);
+            if (boolean_buildCache) {
+                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Building Cache...`);
+                let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+                await writeFileAsync(cached_modulePath + '/index.html', bodyHTML);
+            }
+
+            let rosterPage;
+            if (boolean_useCache) {
+                rosterPage = await browser.newPage();
+                await rosterPage.goto('https://codehs.com');
+            } else {
+                rosterPage = page;
+            }
+
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Downloading Student Emails...`);
+            let obj_studentEmail = await rosterPage.evaluate(async (TEMPLATE_ROSTER_URL, obj) => {
+                //add String.format utility
+                if (!String.format) {
+                    String.format = function (format) {
+                        var args = Array.prototype.slice.call(arguments, 1);
+                        return format.replace(/{(\d+)}/g, function (match, number) {
+                            return typeof args[number] != 'undefined'
+                                ? args[number]
+                                : match
+                                ;
+                        });
+                    };
+                }
+
+                let obj_studentEmail = {};
+
+                //get student emails
+                //TODO: Could cache but not necessary because response loads fast
+                function fetchStudentEmails() {
+                    return new Promise((resolve1, reject1) => {
+                        let emailRequest = new XMLHttpRequest();
+                        emailRequest.onload = function () {
+                            resolve1(this.responseXML);
+                        };
+                        emailRequest.open("GET", String.format(TEMPLATE_ROSTER_URL, obj.classId));
+                        emailRequest.responseType = "document";
+                        emailRequest.send();
+                    });
+                }
+
+                let rosterDocument = await fetchStudentEmails();
+                let tmp_table = rosterDocument.getElementById('classset-progress');
+                let rosterTable = tmp_table.getElementsByTagName('table')[0];
+                let rosterRows = rosterTable.getElementsByTagName('tr');
+                for (let i = 0; i < rosterRows.length; i++) {
+                    let row = rosterRows[i];
+                    if (row.getElementsByTagName('a').length === 0) {
+                        continue;
+                    }
+                    let studentName = row.getElementsByTagName('a')[0].innerText.trim();
+                    let studentEmail = 'none';
+                    let tds = row.getElementsByTagName('td');
+                    for (let j = 0; j < tds.length; j++) {
+                        if (tds[j].innerText.includes('@student')) {
+                            studentEmail = tds[j].innerText;
+                        }
+                    }
+                    obj_studentEmail[studentName] = studentEmail;
+                }
+
+                return obj_studentEmail;
+            }, links.rosterPage, obj);
+            if (boolean_useCache) rosterPage.close();
+
+            // page.on('console', consoleObj => console.log(consoleObj.text()));
+            // let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+            // await writeFileAsync('./out/test/index.html', bodyHTML);
+
+
+            let arr_assignmentsCopy = arr_assignments.slice();
+
+            // await sleep(15000);
+
+            // page.on('console', consoleObj => console.log(consoleObj.text().includes('[info]')?consoleObj.text():''));
+            let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy, obj_studentEmail) => {
+                console.info('arr_assignmentsCopy', arr_assignmentsCopy);
+
+                let arr_IDs = [];
+                let children_possibleNodes = document.getElementsByClassName('activity-item');
+                for (let i = 0; i < children_possibleNodes.length; i++) {
+                    if (children_possibleNodes[i].getAttribute('data-original-title')) {
+                        let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+                        for (let j = 0; j < arr_assignmentsCopy.length; j++) {
+                            if (str.includes(arr_assignmentsCopy[j].toLowerCase())) {
+                                //got one assignment
+                                arr_IDs.push({
+                                    name: arr_assignmentsCopy[j],
+                                    url: children_possibleNodes[i].children[0].href
+                                });
+                                arr_assignmentsCopy.splice(j, 1);
+                                break;
+                            }
+                        }
+                        if (arr_assignmentsCopy.length === 0) {
+                            //got all assignments needed
+                            break;
+                        }
+                    }
+                }
+
+                function sleep(ms) {
+                    return new Promise(resolve => setTimeout(resolve, ms));
+                }
+
+                let arr_obj_students = [];
+                let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
+
+                console.info('numStudents', table.length);
+                for (let i = 0; i < table.length; i++) {
+                    let student_firstName = table[i].getAttribute('data-first-name').toString();
+                    let student_lastName = table[i].getAttribute('data-last-name').toString();
+                    let obj_student = {
+                        firstName: student_firstName,
+                        lastName: student_lastName,
+                        email: obj_studentEmail[student_firstName + ' ' + student_lastName],
+                        assignments: {}
+                    };
+
+                    let candidate_assignments = table[i].getElementsByClassName('progress-circle');
+                    // console.info('num student-link candidates', candidate_assignments.length);
+                    for (let j = 0; j < candidate_assignments.length; j++) {
+                        let refStr = candidate_assignments[j].href;
+                        let refStrComponents = refStr.split('/');
+                        if (refStr && refStrComponents.length >= 4) {
+                            refStrComponents.slice().some(str => {
+                                if (str.toString().trim().length >= 3) {
+                                    if (!str.match(/[a-zA-Z:]/g)) {
+                                        //to parse it even if from cache
+                                        obj_student.id = str;
+                                        // console.info('got student id', str);
+                                        return '0';
+                                    }
+                                }
+                            });
+                            break;
+                        }
+                    }
+                    arr_obj_students.push(obj_student);
+                }
+
+                return [arr_IDs, arr_obj_students];
+            }, arr_assignmentsCopy, obj_studentEmail);
+
+            for (let i = 0; i < arr_assignmentIDs.length; i++) {
+                let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
+                arr_assignmentIDs[i] = temp_split[6];
+            }
+
+            if (boolean_useCache) {
+                await page.goto('https://www.codehs.com');
+            }
+
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
+            await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
+            obj.students = await page.evaluate(
+                async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
+                    //import bottleneck from script tag
+                    let Bottleneck = window.Bottleneck;
+                    const limiter = new Bottleneck({
+                        maxConcurrent: 10,
+                        minTime: 200
+                    });
+
+                    //add String.format utility
+                    if (!String.format) {
+                        String.format = function (format) {
+                            var args = Array.prototype.slice.call(arguments, 1);
+                            return format.replace(/{(\d+)}/g, function (match, number) {
+                                return typeof args[number] != 'undefined'
+                                    ? args[number]
+                                    : match
+                                    ;
+                            });
+                        };
+                    }
+
+                    //limits to one student for testing
+                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+
+                    console.info('fetching student pages', arr_obj_students);
+
+                    // fetch student's page
+                    await Promise.all(arr_obj_students.map(async (studentObject) => {
+                        // console.info('processing', studentObject);
+                        await limiter.schedule(() => {
+                            const allTasks = arr_assignmentIDs.map(async (key) => {
+                                return new Promise((res, rej) => {
+                                    let xhr = new XMLHttpRequest();
+                                    xhr.onload = async function () {
+                                        let document = this.responseXML;
+
+                                        //get problem name
+                                        let problemName = document.title.split('|')[0].trim();
+
+                                        //get first try date/time
+                                        let startedText;
+                                        try {
+                                            startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
+                                        } catch {
+                                            studentObject.assignments['' + key] = {
+                                                problemName: problemName.includes('201') ? 'Problem Removed': problemName,
+                                                firstTryDate: '--',
+                                                firstTryTime: '--',
+                                                timeWorkedBeforeDue: '--',
+                                                timeWorkedTotal: '--',
+                                                onTimeStatus: '--',
+                                                problemStatus: 'Problem Removed',
+                                                pointsAwarded: '--',
+                                                maxPoints: '--'
+                                            };
+
+                                            res(1);
+                                        }
+                                        startedText = startedText.trim().substring(11).trim();
+                                        let date_startDate = new Date(startedText.substring(0, startedText.length - 4));
+                                        //attach date 'hours' modifier
+                                        Date.prototype.addHours = function (h) {
+                                            this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+                                            return this;
+                                        };
+                                        if (startedText.includes('p.m.')) {
+                                            date_startDate.addHours(12);
+                                        }
+                                        // console.info('raw start text', startedText);
+                                        // console.info('start date object', date_startDate);
+                                        let year = date_startDate.getFullYear();
+                                        let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
+                                        let day = date_startDate.getDate().toString().padStart(2, '0');
+                                        let firstTryDate = month + '/' + day + '/' + year;
+                                        let firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        });
+
+                                        //get problem status
+                                        let messages = document.getElementById('status-message').children;
+                                        let problemStatus;
+                                        for (let i = 0; i < messages.length; i++) {
+                                            if (messages[i].innerText) {
+                                                let status = messages[i].innerText;
+                                                if (status.includes(':')) {
+                                                    problemStatus = status.split(':')[1].trim();
+                                                } else {
+                                                    //example programs arent graded... i think
+                                                    problemStatus = 'Finalized';
+                                                }
+                                                break;
+                                            }
+                                        }
+
+                                        //get student grade
+                                        let studentAssignmentID;
+                                        let arr_candidate_scripts = document.getElementsByTagName('script');
+                                        for (let i = 0; i < arr_candidate_scripts.length; i++) {
+                                            let temp_innerText = arr_candidate_scripts[i].innerText;
+                                            if (temp_innerText) {
+                                                if (temp_innerText.includes('studentAssignmentID')) {
+                                                    temp_innerText = temp_innerText.substring(
+                                                        temp_innerText.indexOf(':', temp_innerText.lastIndexOf('studentAssignmentID')) + 1).trim();
+                                                    // console.info('innerText', temp_innerText);
+                                                    studentAssignmentID = temp_innerText.split(' ')[0].substring(0, temp_innerText.indexOf(',')).trim();
+                                                    // console.info('student assignment ID', studentAssignmentID);
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        function formatParams(params) {
+                                            return "?" + Object
+                                                .keys(params)
+                                                .map(function (key) {
+                                                    return key + "=" + encodeURIComponent(params[key])
+                                                })
+                                                .join("&")
+                                        }
+
+                                        function getCurrHistory() {
+                                            return new Promise(function (r, j) {
+                                                let historyRequest = new XMLHttpRequest();
+                                                historyRequest.onload = function () {
+                                                    r(this.responseText);
+                                                };
+                                                let queryParams = {
+                                                    student_assignment_id: studentAssignmentID,
+                                                    method: 'get_grading_history'
+                                                };
+                                                historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
+                                                historyRequest.send();
+                                            });
+                                        }
+
+                                        let responseTxt = await getCurrHistory();
+                                        // console.info('curr history response Txt', responseTxt);
+                                        let responseObject = JSON.parse('' + responseTxt);
+                                        let currentGrade = responseObject['current_status'];
+                                        // console.info(currentGrade);
+                                        let pointsAwarded = '' + currentGrade['score'];
+                                        if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
+                                        let maxPoints = currentGrade['out_of'];
+
+                                        // get time worked
+                                        let selectionField = document.getElementById('assignment-submission-select');
+                                        if (selectionField != null) {
+                                            let submissions = selectionField.getElementsByTagName('option');
+                                            for (let i = 0; i < submissions.length; i++) {
+                                                let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
+                                                //attach date 'hours' modifier
+                                                Date.prototype.addHours = function (h) {
+                                                    this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+                                                    return this;
+                                                };
+                                                if (submissions[i].innerText.includes('p.m.')) {
+                                                    date_submissionDate.addHours(12);
+                                                }
+                                                let value = submissions[i].getAttribute('value');
+                                                let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
+                                                let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
+
+                                            }
+                                        }
+
+                                        studentObject.assignments['' + key] = {
+                                            problemName: problemName,
+                                            firstTryDate: firstTryDate,
+                                            firstTryTime: firstTryTime,
+                                            timeWorkedBeforeDue: '',
+                                            timeWorkedTotal: '',
+                                            onTimeStatus: '',
+                                            problemStatus: problemStatus,
+                                            pointsAwarded: pointsAwarded,
+                                            maxPoints: maxPoints
+                                        };
+
+                                        res(1);
+                                    };
+                                    // console.info(studentObject.id);
+                                    // console.info(obj.classId);
+                                    // console.info(key);
+                                    // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    console.info('[info] stuUrl' , String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    xhr.responseType = "document";
+                                    xhr.send();
+                                    // console.info('XHR Sent', key);
+                                })
+                            });
+                            return Promise.all(allTasks);
+                        });
+                    }));
+
+                    return arr_obj_students;
+                }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students
+            );
+
+            // await sleep(100000);
+
+            await page.close();
+            // console.info('done obj', obj);
+            resolve('done at ' + Date.now());
+        })
+    }
+
+    async function assembleClassQueues() {
+        return new Promise((resolve, reject) => {
             const spinner = ora({text: `${chalk.bold('Assembling parsing queue')}`}).start();
 
             let {arr_classes} = sessionData;
@@ -81,7 +578,7 @@ let sessionData = {rebuildCache: false},
             arr_classes.forEach(obj => {
                 let teacherName = obj.split('|')[0];
                 let classIdentifier = obj.split('|')[1];
-                if(classIdentifier === '0'){
+                if (classIdentifier === '0') {
                     arr_completed.push(teacherName);
                     for (let classNum in sections[teacherName].classes) {
                         if (!sections[teacherName].classes.hasOwnProperty(classNum)) continue;
@@ -95,8 +592,8 @@ let sessionData = {rebuildCache: false},
                         };
                         arr_objs_classes.push(obj_todo);
                     }
-                }else{
-                    if(!arr_completed.includes(teacherName)){
+                } else {
+                    if (!arr_completed.includes(teacherName)) {
                         let obj_todo = {
                             teacherName: teacherName,
                             url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classIdentifier]),
@@ -114,7 +611,7 @@ let sessionData = {rebuildCache: false},
         })
     }
 
-    async function loadSavedSectionIDs(){
+    async function loadSavedSectionIDs() {
         sessionData.sections = require('./secrets/sections.json');
     }
 
@@ -141,7 +638,7 @@ let sessionData = {rebuildCache: false},
         await pg.goto(format(links.teachersPage, teacherID), {waitUntil: 'networkidle2'});
 
         // make this part optional (could be manual) b/c not everyone has same naming formats
-        let sections = await pg.evaluate(()=> {
+        let sections = await pg.evaluate(() => {
             let tmp_arr_secs = document.getElementsByClassName('teachercourse-header');
 
             let sections = {};
@@ -152,8 +649,8 @@ let sessionData = {rebuildCache: false},
                 let name = container.innerHTML.toString().trim().substring(0, container.innerHTML.toString().trim().indexOf(' '));
                 // console.info(name);
                 let tmp_id_split = container.href.toString().split('/');
-                let teacherURL = tmp_id_split[tmp_id_split.length-1];
-                let selectors = document.querySelectorAll('[data-teacher-course-id="'+ teacherURL +'"]');
+                let teacherURL = tmp_id_split[tmp_id_split.length - 1];
+                let selectors = document.querySelectorAll('[data-teacher-course-id="' + teacherURL + '"]');
                 let teacherObj = {
                     id: teacherURL
                 };
@@ -190,7 +687,7 @@ let sessionData = {rebuildCache: false},
                         message: `Enter assignment names (separated by ${chalk.bold(',')})`,
                         initial: '',
                         separator: ',',
-                        validate: val => val.toString().length > 0 ? true: 'Enter at least one assignment!'
+                        validate: val => val.toString().length > 0 ? true : 'Enter at least one assignment!'
                     },
                     {
                         type: 'date',
@@ -217,7 +714,7 @@ let sessionData = {rebuildCache: false},
 
             resolve('i');
 
-            function buildOptions () {
+            function buildOptions() {
                 let options = [];
                 let {sections} = sessionData;
                 for (let key in sections) {
@@ -296,7 +793,7 @@ let sessionData = {rebuildCache: false},
             const page = await browser.newPage();
 
             await loginCodeHS(page).then(async suc => {
-                if(!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))){
+                if (!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))) {
                     await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
                 }
                 spinner.succeed(`${chalk.bold('Login credentials valid')}`);
