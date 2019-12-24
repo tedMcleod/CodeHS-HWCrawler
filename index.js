@@ -362,7 +362,18 @@ let sessionData = {rebuildCache: false},
             }
 
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
-            await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
+
+            await pathExists('./node_modules/bottleneck/es5.js').then (async suc => {
+                await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
+            }).catch(async err => {
+                await pathExists('../../node_modules/bottleneck/es5.js').then (async suc => {
+                    await page.addScriptTag({path: '../../node_modules/bottleneck/es5.js'});
+                }).catch(err=> {
+                    console.info(chalk.bold.red('Could not find the \'bottleneck\' module'));
+                    process.exit();
+                })
+            });
+
             obj.students = await page.evaluate(
                 async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
                     //import bottleneck from script tag
@@ -526,7 +537,14 @@ let sessionData = {rebuildCache: false},
                                                 let value = submissions[i].getAttribute('value');
                                                 let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
                                                 let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
+                                                //TODO Figure out grading based on timeSpent
 
+                                                //get student's code
+                                                let codeVersions = [];
+
+                                                function removeFormattingCharacters(str){
+                                                    return str.replace(/(\\r\\n|\\r|\\n|\\t)/igm, ' ').replace(/ +/gm, '');
+                                                }
                                             }
                                         }
 
@@ -985,7 +1003,7 @@ let sessionData = {rebuildCache: false},
 
 function loginCodeHS(pg) {
     return new Promise(async (resolve, reject) => {
-        resolve('assume credentials are correct'); //TODO: remove on prod
+        // resolve('assume credentials are correct'); //TODO: remove on prod
         let warningsLength;
         let teacherID;
         try {
