@@ -18,7 +18,7 @@
   "devDependencies": {},
   "scripts": {
     "start": "node index.js",
-    "start-test": "node init.js"
+    "legacy": "node legacy_index.js"
   },
   "author": "JP",
   "license": "ISC"

@@ -1,147 +1,103 @@
-const puppeteer = require('puppeteer');
-const CREDS = require('./secrets/creds');
-const SECTIONS = require('./secrets/sections');
-const TEMPLATE_HOME_URL = 'https://codehs.com/lms/assignments/{0}/section/{1}/time_tracking';
-const TEMPLATE_STUDENT_URL = 'https://codehs.com/student/{0}/section/{1}/assignment/{2}/';
-const TEMPLATE_ROSTER_URL = 'https://codehs.com/section/{0}/roster/info';
-const TEMPLATE_GET_CODE_URL = 'https://codehs.com/editor/ajax/get_editor_setup_code?item_id={0}&user_id={1}&method=get_editor_setup_code';
-const format = require('string-format');
-const util = require('util');
-const fs = require('fs');
-const pLimit = require('p-limit');
-const path = require('path');
-const networkLimit = pLimit(1); //probably wont work scaled up, should be 1 if useCache : false
-const mkdirp = require('mkdirp');
+const prompts = require('prompts'),
+    validator = require('validator'),
+    ora = require('ora'),
+    chalk = require('chalk'),
+    fs = require('fs'),
+    path = require('path'),
+    puppeteer = require('puppeteer'),
+    format = require('string-format'),
+    links = require('./templates/links'),
+    pLimit = require('p-limit'),
+    netLimit = pLimit(1);
 
-// console.log('loaded index.js');
-let arr_args = process.argv.slice(2);
-
-if (arr_args.length === 0) {
-    arr_args = ['11/22/19', '11:11', '2', 'Rolling+Dice', 'Teenagers', '2', 'm0', 's0', 'true', 'false', 'true'];
+let crypto, browser;
+try {
+    crypto = require('crypto');
+} catch (err) {
+    console.log('crypto support is required but is disabled!');
+    process.exit(0);
 }
 
-// console.log('arguments', arr_args);
+let sessionData = {rebuildCache: false},
+    arr_objs_classes = [];
 
-let arr_dueDate = arr_args[0].split('/');
-let arr_dueTime = arr_args[1].split(':');
+/*
+             _     _ _            _        _   _                   _     _                   _          ____ _        _             __ __                     __
+ _ __  _   _| |__ | (_) ___   ___| |_ __ _| |_(_) ___  __   _____ (_) __| |  _ __ ___   __ _(_)_ __    / / _\ |_ _ __(_)_ __   __ _| _|_ |   __ _ _ __ __ _ __\ \
+| '_ \| | | | '_ \| | |/ __| / __| __/ _` | __| |/ __| \ \ / / _ \| |/ _` | | '_ ` _ \ / _` | | '_ \  | |\ \| __| '__| | '_ \ / _` | | | |  / _` | '__/ _` / __| |
+| |_) | |_| | |_) | | | (__  \__ \ || (_| | |_| | (__   \ V / (_) | | (_| | | | | | | | (_| | | | | | | |_\ \ |_| |  | | | | | (_| | | | | | (_| | | | (_| \__ \ |
+| .__/ \__,_|_.__/|_|_|\___| |___/\__\__,_|\__|_|\___|   \_/ \___/|_|\__,_| |_| |_| |_|\__,_|_|_| |_| | |\__/\__|_|  |_|_| |_|\__, | | | |  \__,_|_|  \__, |___/ |
+|_|                                                                                                    \_\                    |___/|__|__|            |___/   /_/
 
-let date_dueDate = new Date((arr_dueDate[2].length !== 4 ? 2000 + (+arr_dueDate[2]) : +arr_dueDate[2]),
-    +arr_dueDate[0], +arr_dueDate[1], +arr_dueTime[0], +arr_dueTime[0], 0, 0);
+ */
 
-//will not work ... below this ???
-String.prototype.replaceAll = function (search, replacement) {
-    let target = this;
-    return target.replace(new RegExp(search, 'g'), replacement);
-};
+(async () => {
+    await startPuppeteer();
 
-let assignmentsCount = +arr_args[2];
-let arr_assignments = [];
-for (let i = 0; i < assignmentsCount; i++) {
-    let temp_str = "" + arr_args[3 + i];
-    arr_assignments.push(temp_str.replaceAll("\\\+", " ").toString().toLowerCase());
-}
+    if (savedCredsExist()) {
+        await loadCredentialsPrompts();
+        await testCredentials().catch((quit) => codeHSCredInvalidExit);
+    } else {
+        await setCredentialsPrompts();
+        await testCredentials().catch((quit) => codeHSCredInvalidExit);
+        await promptSavePwdOptions();
+        await continueConfirmation().catch((quit) => doneSetupExit);
+    }
 
-let arr_objs_classes = [];
-let teachersCount = +arr_args[3 + assignmentsCount];
-for (let i = 0; i < teachersCount; i++) {
-    let rawTeacherStr = arr_args[4 + assignmentsCount + i];
-    let teacherInitial = rawTeacherStr.charAt(0);
-    let teacherName = SECTIONS[teacherInitial].name;
-    let teacherStr = rawTeacherStr.substring(1);
-    teacherStr.trim().split('').forEach(char => {
-        if (char === '0') {
-            //0 --> All classes
-            for (let classNum in SECTIONS[teacherInitial].classes) {
-                if (!SECTIONS[teacherInitial].classes.hasOwnProperty(classNum)) continue;
-                let obj_todo = {
-                    teacherName: teacherName,
-                    url: format(TEMPLATE_HOME_URL, SECTIONS[teacherInitial].id, SECTIONS[teacherInitial].classes[classNum]),
-                    classNum: classNum,
-                    sectionId: SECTIONS[teacherInitial].id,
-                    classId: SECTIONS[teacherInitial].classes[classNum],
-                    students: []
-                };
-                arr_objs_classes.push(obj_todo);
-            }
-        } else {
-            let classNum = +char;
-            let obj_todo = {
-                teacherName: teacherName,
-                url: format(TEMPLATE_HOME_URL, SECTIONS[teacherInitial].id, SECTIONS[teacherInitial].classes[classNum]),
-                classNum: classNum,
-                sectionId: SECTIONS[teacherInitial].id,
-                classId: SECTIONS[teacherInitial].classes[classNum],
-                students: []
-            };
-            arr_objs_classes.push(obj_todo);
-        }
-    })
-}
+    if (savedSectionsIDExist()) {
+        await loadSavedSectionIDs();
+    } else {
+        await parseSectionIDs();
+    }
 
-let boolean_useCache = arr_args[assignmentsCount + teachersCount + 4] === 'true';
-console.info('use cache?', boolean_useCache);
-let boolean_buildCache = arr_args[assignmentsCount + teachersCount + 5] === 'true';
-console.info('(re)build cache?', boolean_buildCache);
-let boolean_downloadStudentCode = arr_args[assignmentsCount + teachersCount + 6] === 'true';
-console.info('download students\' code?', boolean_downloadStudentCode);
+    await promptAssignmentOptions();
 
-console.info(date_dueDate);
-console.info(arr_assignments);
+    await assembleClassQueues();
 
-start().then();
+    await parseEachClassObj();
 
-async function start() {
-    const browser = await puppeteer.launch({
-        // headless: false //TODO: remove for production
-    });
-    const page = await browser.newPage();
-    await loginCodeHS(page);
 
-    // arr_objs_classes = arr_objs_classes.splice(arr_objs_classes.length - 1); //TODO: delete for prod
-    //TODO: use this to choose which class
+    await stopPuppeteer();
 
-    await Promise.all(arr_objs_classes.map((obj) => {
-        return networkLimit(() => combinedSteps(obj))
-    }));
+    /*
+          _    _ ______ _      _____  ______ _____   _____
+         | |  | |  ____| |    |  __ \|  ____|  __ \ / ____|
+         | |__| | |__  | |    | |__) | |__  | |__) | (___
+         |  __  |  __| | |    |  ___/|  __| |  _  / \___ \
+         | |  | | |____| |____| |    | |____| | \ \ ____) |
+         |_|  |_|______|______|_|    |______|_|  \_\_____/
 
-    // console.info(util.inspect(arr_objs_classes, false, null, true));
+     */
 
-    await browser.close(); //TODO: uncomment in production
-
-    async function loginCodeHS(pg) {
-        await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
-
-        const EMAIL_SELECTOR = '#login-email';
-        const PASSWORD_SELECTOR = '#login-password';
-        const BUTTON_SELECTOR = '#login-submit';
-
-        await pg.click(EMAIL_SELECTOR);
-        await pg.keyboard.type(CREDS.email);
-
-        await pg.click(PASSWORD_SELECTOR);
-        await pg.keyboard.type(CREDS.password);
-
-        await pg.click(BUTTON_SELECTOR);
-        await pg.waitForNavigation();
-        await pg.close();
-        return 'done';
+    async function parseEachClassObj() {
+        await Promise.all(arr_objs_classes.map((obj) => {
+            return netLimit(() => combinedSteps(obj))
+        }));
     }
 
     async function combinedSteps(classObj) {
         return new Promise(async (a, b) => {
-            await parseClassPages(classObj, arr_objs_classes, browser);
+            const spinner = ora({text: `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Preparing...`)}`}).start();
+            await parseClassPages(classObj, arr_objs_classes, browser, spinner);
             await writeClass(classObj);
+            spinner.succeed(`${chalk.bold(`./out/data/${classObj.teacherName + '_P' + classObj.classNum} was updated`)}`);
             a(Date.now());
         })
     }
 
     function writeClass(classObj) {
         return new Promise((re, reje) => {
+            let {date_dueDate, arr_assignments} = sessionData;
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
+
+            let outPath = './out/data/' + classObj.teacherName + '_P' + classObj.classNum + '/';
             arr_assignments.forEach(assignmentName => {
+                // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
+                outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
             });
+            outPath = outPath.trim().replaceAll(' ', '_') + '.csv';
             headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
             content_rows.push(headers);
             classObj.students.forEach(studentObj => {
@@ -185,246 +141,85 @@ async function start() {
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
 
-            ensureDirectoryExistence('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv');
-            fs.writeFile('./out/data/' + classObj.teacherName + '_P' + classObj.classNum + '.csv', csvContent, function (err) {
+            ensureDirectoryExistence(outPath);
+            fs.writeFile(outPath, csvContent, function (err) {
                 if (err) {
                     reje('failed');
                     return console.log(err);
                 }
-                console.log(classObj.teacherName + '_P' + classObj.classNum + '.csv was saved');
-                re(classObj.teacherName + '_P' + classObj.classNum + '.csv ');
+                re(classObj.teacherName + '_P' + classObj.classNum);
             })
         });
     }
-}
 
-function ensureDirectoryExistence(filePath) {
-    let dirname = path.dirname(filePath);
-    if (fs.existsSync(dirname)) {
-        return true;
-    }
-    ensureDirectoryExistence(dirname);
-    fs.mkdirSync(dirname);
-}
-
-
-async function parseClassPages(obj, arr_objs_classes, browser) {
-    return new Promise(async (resolve, reject) => {
-        const page = await browser.newPage();
-        const headlessUserAgent = await page.evaluate(() => navigator.userAgent);
-        const chromeUserAgent = headlessUserAgent.replace('HeadlessChrome', 'Chrome');
-        await page.setUserAgent(chromeUserAgent);
-        await page.setExtraHTTPHeaders({
-            'accept-language': 'en-US,en;q=0.8'
-        });
-        let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
-        let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
-
-        async function pathExists(path) {
-            return new Promise((resolve1, reject1) => {
-                if (fs.existsSync(path)) {
-                    resolve1(true);
-                } else {
-                    reject1(false);
-                }
+    async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
+        return new Promise(async (resolve, reject) => {
+            let {date_dueDate, arr_assignments} = sessionData;
+            const page = await browser.newPage();
+            const headlessUserAgent = await page.evaluate(() => navigator.userAgent);
+            const chromeUserAgent = headlessUserAgent.replace('HeadlessChrome', 'Chrome');
+            await page.setUserAgent(chromeUserAgent);
+            await page.setExtraHTTPHeaders({
+                'accept-language': 'en-US,en;q=0.8'
             });
-        }
+            let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
+            let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
 
-        if (boolean_useCache) {
-            await pathExists(cached_modulePath + '/index.html').then(success => {
-                //use cache
-                url_sectionAllModule = `file:${path.join(__dirname, cached_modulePath + '/index.html')}`;
-            }).catch(err => {
-                boolean_useCache = false;
-            });
-        }
-        let pageGoOptions = {
-            waitUntil: 'networkidle2',
-            timeout: 0
-        };
-        if(boolean_useCache){
-            // await page.setJavaScriptEnabled( false );
-        }
-        // console.info(url_sectionAllModule);
-        await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
-            if (errObj.name !== 'TimeoutError') {
-                console.info('yikes');
-            }
-        });
-        await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
-        // console.info('build cache ? ', boolean_buildCache);
-        if (boolean_buildCache) {
-            let bodyHTML = await page.evaluate(() => document.body.innerHTML);
-            mkdirp(cached_modulePath, function (err) {
-                if (err) console.error('could not create directory..???');
-                else {
-                    //TODO: If usecache and buildcache both = true, build cache w new res after use cache
-                    fs.writeFile(cached_modulePath + '/index.html', bodyHTML, function (error) {
-                        if (error) {
-                            console.error(error);
-                        } else {
-                            // console.info('wrote file');
-                        }
-                    });
-                }
-            });
-        }
-
-        let rosterPage;
-        if(boolean_useCache){
-            rosterPage = await browser.newPage();
-            await rosterPage.goto('https://codehs.com');
-        }else{
-            rosterPage = page;
-        }
-
-        let obj_studentEmail = await rosterPage.evaluate(async (TEMPLATE_ROSTER_URL, obj) => {
-            //add String.format utility
-            if (!String.format) {
-                String.format = function (format) {
-                    var args = Array.prototype.slice.call(arguments, 1);
-                    return format.replace(/{(\d+)}/g, function (match, number) {
-                        return typeof args[number] != 'undefined'
-                            ? args[number]
-                            : match
-                            ;
-                    });
-                };
-            }
-
-            let obj_studentEmail = {};
-
-            //get student emails
-            //TODO: Could cache but not necessary because response loads fast
-            function fetchStudentEmails() {
+            async function pathExists(path) {
                 return new Promise((resolve1, reject1) => {
-                    let emailRequest = new XMLHttpRequest();
-                    emailRequest.onload = function () {
-                        resolve1(this.responseXML);
-                    };
-                    emailRequest.open("GET", String.format(TEMPLATE_ROSTER_URL, obj.classId));
-                    emailRequest.responseType = "document";
-                    emailRequest.send();
+                    if (fs.existsSync(path)) {
+                        resolve1(true);
+                    } else {
+                        reject1(false);
+                    }
                 });
             }
 
-            let rosterDocument = await fetchStudentEmails();
-            let tmp_table = rosterDocument.getElementById('classset-progress');
-            let rosterTable = tmp_table.getElementsByTagName('table')[0];
-            let rosterRows = rosterTable.getElementsByTagName('tr');
-            for (let i = 0; i < rosterRows.length; i++) {
-                let row = rosterRows[i];
-                if (row.getElementsByTagName('a').length === 0) {
-                    continue;
-                }
-                let studentName = row.getElementsByTagName('a')[0].innerText.trim();
-                let studentEmail = 'none';
-                let tds = row.getElementsByTagName('td');
-                for (let j = 0; j < tds.length; j++) {
-                    if (tds[j].innerText.includes('@student')) {
-                        studentEmail = tds[j].innerText;
-                    }
-                }
-                obj_studentEmail[studentName] = studentEmail;
-            }
+            //TODO: JUST GET RID OF THESE VARIABLES
+            let boolean_useCache = true;
+            let boolean_buildCache = false;
 
-            return obj_studentEmail;
-        }, TEMPLATE_ROSTER_URL, obj);
-        if(boolean_useCache) rosterPage.close();
-
-        // page.on('console', consoleObj => console.log(consoleObj.text()));
-        // let bodyHTML = await page.evaluate(() => document.body.innerHTML);
-        // await writeFileAsync('./out/test/index.html', bodyHTML);
-
-        let arr_assignmentsCopy = arr_assignments.slice();
-        let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy, obj_studentEmail) => {
-            console.info(arr_assignmentsCopy);
-
-            let arr_IDs = [];
-            let children_possibleNodes = document.getElementsByClassName('activity-item');
-            for (let i = 0; i < children_possibleNodes.length; i++) {
-                if (children_possibleNodes[i].getAttribute('data-original-title')) {
-                    let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
-                    for (let j = 0; j < arr_assignmentsCopy.length; j++) {
-                        if (str.includes(arr_assignmentsCopy[j])) {
-                            //got one assignment
-                            arr_IDs.push({
-                                name: arr_assignmentsCopy[j],
-                                url: children_possibleNodes[i].children[0].href
-                            });
-                            arr_assignmentsCopy.splice(j, 1);
-                            break;
-                        }
-                    }
-                    if (arr_assignmentsCopy.length === 0) {
-                        //got all assignments needed
-                        break;
-                    }
-                }
-            }
-
-            function sleep(ms) {
-                return new Promise(resolve => setTimeout(resolve, ms));
-            }
-
-            let arr_obj_students = [];
-            let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
-
-            console.info('numStudents', table.length);
-            for (let i = 0; i < table.length; i++) {
-                let student_firstName = table[i].getAttribute('data-first-name').toString();
-                let student_lastName = table[i].getAttribute('data-last-name').toString();
-                let obj_student = {
-                    firstName: student_firstName,
-                    lastName: student_lastName,
-                    email: obj_studentEmail[student_firstName + ' ' + student_lastName],
-                    assignments: {}
-                };
-
-                let candidate_assignments = table[i].getElementsByClassName('progress-circle');
-                // console.info('num student-link candidates', candidate_assignments.length);
-                for (let j = 0; j < candidate_assignments.length; j++) {
-                    let refStr = candidate_assignments[j].href;
-                    let refStrComponents = refStr.split('/');
-                    if (refStr && refStrComponents.length >= 4) {
-                        refStrComponents.slice().some(str => {
-                            if (str.toString().trim().length >= 3) {
-                                if (!str.match(/[a-zA-Z:]/g)) {
-                                    //to parse it even if from cache
-                                    obj_student.id = str;
-                                    // console.info('got student id', str);
-                                    return '0';
-                                }
-                            }
-                        });
-                        break;
-                    }
-                }
-                arr_obj_students.push(obj_student);
-            }
-
-            return [arr_IDs, arr_obj_students];
-        }, arr_assignmentsCopy, obj_studentEmail);
-
-        for (let i = 0; i < arr_assignmentIDs.length; i++) {
-            let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
-            arr_assignmentIDs[i] = temp_split[6];
-        }
-
-        if (boolean_useCache) {
-            await page.goto('https://www.codehs.com');
-        }
-
-        await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
-        obj.students = await page.evaluate(
-            async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
-                //import bottleneck from script tag
-                let Bottleneck = window.Bottleneck;
-                const limiter = new Bottleneck({
-                    maxConcurrent: 10,
-                    minTime: 200
+            if (boolean_useCache) {
+                await pathExists(cached_modulePath + '/index.html').then(success => {
+                    //use cache
+                    url_sectionAllModule = `file:${path.join(__dirname, cached_modulePath + '/index.html')}`;
+                }).catch(err => {
+                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
+                    boolean_useCache = false;
+                    boolean_buildCache = true;
                 });
+            }
+            let pageGoOptions = {
+                waitUntil: 'networkidle2',
+                timeout: 0
+            };
+            if (boolean_useCache) {
+                // await page.setJavaScriptEnabled( false );
+            }
+            // console.info(url_sectionAllModule);
+            await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
+                if (errObj.name !== 'TimeoutError') {
+                    console.info('yikes');
+                }
+            });
+            await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
+            // console.info('build cache ? ', boolean_buildCache);
+            if (boolean_buildCache) {
+                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Building Cache...`);
+                let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+                await writeFileAsync(cached_modulePath + '/index.html', bodyHTML);
+            }
 
+            let rosterPage;
+            if (boolean_useCache) {
+                rosterPage = await browser.newPage();
+                await rosterPage.goto('https://codehs.com');
+            } else {
+                rosterPage = page;
+            }
+
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Downloading Student Emails...`);
+            let obj_studentEmail = await rosterPage.evaluate(async (TEMPLATE_ROSTER_URL, obj) => {
                 //add String.format utility
                 if (!String.format) {
                     String.format = function (format) {
@@ -438,188 +233,841 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                     };
                 }
 
-                //limits to one student for testing
-                // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                let obj_studentEmail = {};
 
-                console.info('fetching student pages', arr_obj_students);
+                //get student emails
+                //TODO: Could cache but not necessary because response loads fast
+                function fetchStudentEmails() {
+                    return new Promise((resolve1, reject1) => {
+                        let emailRequest = new XMLHttpRequest();
+                        emailRequest.onload = function () {
+                            resolve1(this.responseXML);
+                        };
+                        emailRequest.open("GET", String.format(TEMPLATE_ROSTER_URL, obj.classId));
+                        emailRequest.responseType = "document";
+                        emailRequest.send();
+                    });
+                }
 
-                // fetch student's page
-                await Promise.all(arr_obj_students.map(async (studentObject) => {
-                    // console.info('processing', studentObject);
-                    await limiter.schedule(() => {
-                        const allTasks = arr_assignmentIDs.map(async (key) => {
-                            return new Promise((res, rej) => {
-                                let xhr = new XMLHttpRequest();
-                                xhr.onload = async function () {
-                                    let document = this.responseXML;
+                let rosterDocument = await fetchStudentEmails();
+                let tmp_table = rosterDocument.getElementById('classset-progress');
+                let rosterTable = tmp_table.getElementsByTagName('table')[0];
+                let rosterRows = rosterTable.getElementsByTagName('tr');
+                for (let i = 0; i < rosterRows.length; i++) {
+                    let row = rosterRows[i];
+                    if (row.getElementsByTagName('a').length === 0) {
+                        continue;
+                    }
+                    let studentName = row.getElementsByTagName('a')[0].innerText.trim();
+                    let studentEmail = 'none';
+                    let tds = row.getElementsByTagName('td');
+                    for (let j = 0; j < tds.length; j++) {
+                        if (tds[j].innerText.includes('@student')) {
+                            studentEmail = tds[j].innerText;
+                        }
+                    }
+                    obj_studentEmail[studentName] = studentEmail;
+                }
 
-                                    //get problem name
-                                    let problemName = document.title.split('|')[0].trim();
+                return obj_studentEmail;
+            }, links.rosterPage, obj);
+            if (boolean_useCache) rosterPage.close();
 
-                                    //get first try date/time
-                                    let startedText;
-                                    try {
-                                        startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
-                                    }catch{
-                                        studentObject.assignments['' + key] = {
-                                            problemName: problemName,
-                                            firstTryDate: '--',
-                                            firstTryTime: '--',
-                                            timeWorkedBeforeDue: '--',
-                                            timeWorkedTotal: '--',
-                                            onTimeStatus: '--',
-                                            problemStatus: 'Problem Removed',
-                                            pointsAwarded: '--',
-                                            maxPoints: '--'
-                                        };
+            // page.on('console', consoleObj => console.log(consoleObj.text()));
+            // let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+            // await writeFileAsync('./out/test/index.html', bodyHTML);
 
-                                        res(1);
+
+            let arr_assignmentsCopy = arr_assignments.slice();
+
+            // await sleep(15000);
+
+            // page.on('console', consoleObj => console.log(consoleObj.text().includes('[info]')?consoleObj.text():''));
+            let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy, obj_studentEmail) => {
+                console.info('arr_assignmentsCopy', arr_assignmentsCopy);
+
+                let arr_IDs = [];
+                let children_possibleNodes = document.getElementsByClassName('activity-item');
+                for (let i = 0; i < children_possibleNodes.length; i++) {
+                    if (children_possibleNodes[i].getAttribute('data-original-title')) {
+                        let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+                        for (let j = 0; j < arr_assignmentsCopy.length; j++) {
+                            if (str.includes(arr_assignmentsCopy[j].toLowerCase())) {
+                                //got one assignment
+                                arr_IDs.push({
+                                    name: arr_assignmentsCopy[j],
+                                    url: children_possibleNodes[i].children[0].href
+                                });
+                                arr_assignmentsCopy.splice(j, 1);
+                                break;
+                            }
+                        }
+                        if (arr_assignmentsCopy.length === 0) {
+                            //got all assignments needed
+                            break;
+                        }
+                    }
+                }
+
+                function sleep(ms) {
+                    return new Promise(resolve => setTimeout(resolve, ms));
+                }
+
+                let arr_obj_students = [];
+                let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
+
+                console.info('numStudents', table.length);
+                for (let i = 0; i < table.length; i++) {
+                    let student_firstName = table[i].getAttribute('data-first-name').toString();
+                    let student_lastName = table[i].getAttribute('data-last-name').toString();
+                    let obj_student = {
+                        firstName: student_firstName,
+                        lastName: student_lastName,
+                        email: obj_studentEmail[student_firstName + ' ' + student_lastName],
+                        assignments: {}
+                    };
+
+                    let candidate_assignments = table[i].getElementsByClassName('progress-circle');
+                    // console.info('num student-link candidates', candidate_assignments.length);
+                    for (let j = 0; j < candidate_assignments.length; j++) {
+                        let refStr = candidate_assignments[j].href;
+                        let refStrComponents = refStr.split('/');
+                        if (refStr && refStrComponents.length >= 4) {
+                            refStrComponents.slice().some(str => {
+                                if (str.toString().trim().length >= 3) {
+                                    if (!str.match(/[a-zA-Z:]/g)) {
+                                        //to parse it even if from cache
+                                        obj_student.id = str;
+                                        // console.info('got student id', str);
+                                        return '0';
                                     }
-                                    startedText = startedText.trim().substring(11).trim();
-                                    let date_startDate = new Date(startedText.substring(0, startedText.length - 4));
-                                    //attach date 'hours' modifier
-                                    Date.prototype.addHours = function (h) {
-                                        this.setTime(this.getTime() + (h * 60 * 60 * 1000));
-                                        return this;
-                                    };
-                                    if (startedText.includes('p.m.')) {
-                                        date_startDate.addHours(12);
-                                    }
-                                    // console.info('raw start text', startedText);
-                                    // console.info('start date object', date_startDate);
-                                    let year = date_startDate.getFullYear();
-                                    let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
-                                    let day = date_startDate.getDate().toString().padStart(2, '0');
-                                    let firstTryDate = month + '/' + day + '/' + year;
-                                    let firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                    });
+                                }
+                            });
+                            break;
+                        }
+                    }
+                    arr_obj_students.push(obj_student);
+                }
 
-                                    //get problem status
-                                    let messages = document.getElementById('status-message').children;
-                                    let problemStatus;
-                                    for (let i = 0; i < messages.length; i++) {
-                                        if (messages[i].innerText) {
-                                            let status = messages[i].innerText;
-                                            if (status.includes(':')) {
-                                                problemStatus = status.split(':')[1].trim();
-                                            } else {
-                                                //example programs arent graded... i think
-                                                problemStatus = 'Finalized';
-                                            }
-                                            break;
+                return [arr_IDs, arr_obj_students];
+            }, arr_assignmentsCopy, obj_studentEmail);
+
+            for (let i = 0; i < arr_assignmentIDs.length; i++) {
+                let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
+                arr_assignmentIDs[i] = temp_split[6];
+            }
+
+            if (boolean_useCache) {
+                await page.goto('https://www.codehs.com');
+            }
+
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
+            await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
+            obj.students = await page.evaluate(
+                async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
+                    //import bottleneck from script tag
+                    let Bottleneck = window.Bottleneck;
+                    const limiter = new Bottleneck({
+                        maxConcurrent: 10,
+                        minTime: 200
+                    });
+
+                    //add String.format utility
+                    if (!String.format) {
+                        String.format = function (format) {
+                            var args = Array.prototype.slice.call(arguments, 1);
+                            return format.replace(/{(\d+)}/g, function (match, number) {
+                                return typeof args[number] != 'undefined'
+                                    ? args[number]
+                                    : match
+                                    ;
+                            });
+                        };
+                    }
+
+                    //limits to one student for testing
+                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+
+                    console.info('fetching student pages', arr_obj_students);
+
+                    // fetch student's page
+                    await Promise.all(arr_obj_students.map(async (studentObject) => {
+                        // console.info('processing', studentObject);
+                        await limiter.schedule(() => {
+                            const allTasks = arr_assignmentIDs.map(async (key) => {
+                                return new Promise((res, rej) => {
+                                    let xhr = new XMLHttpRequest();
+                                    xhr.onload = async function () {
+                                        let document = this.responseXML;
+
+                                        //get problem name
+                                        let problemName = document.title.split('|')[0].trim();
+
+                                        //get first try date/time
+                                        let startedText;
+                                        try {
+                                            startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
+                                        } catch {
+                                            studentObject.assignments['' + key] = {
+                                                problemName: problemName.includes('201') ? 'Problem Removed': problemName,
+                                                firstTryDate: '--',
+                                                firstTryTime: '--',
+                                                timeWorkedBeforeDue: '--',
+                                                timeWorkedTotal: '--',
+                                                onTimeStatus: '--',
+                                                problemStatus: 'Problem Removed',
+                                                pointsAwarded: '--',
+                                                maxPoints: '--'
+                                            };
+
+                                            res(1);
                                         }
-                                    }
+                                        startedText = startedText.trim().substring(11).trim();
+                                        let date_startDate = new Date(startedText.substring(0, startedText.length - 4));
+                                        //attach date 'hours' modifier
+                                        Date.prototype.addHours = function (h) {
+                                            this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+                                            return this;
+                                        };
+                                        if (startedText.includes('p.m.')) {
+                                            date_startDate.addHours(12);
+                                        }
+                                        // console.info('raw start text', startedText);
+                                        // console.info('start date object', date_startDate);
+                                        let year = date_startDate.getFullYear();
+                                        let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
+                                        let day = date_startDate.getDate().toString().padStart(2, '0');
+                                        let firstTryDate = month + '/' + day + '/' + year;
+                                        let firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        });
 
-                                    //get student grade
-                                    let studentAssignmentID;
-                                    let arr_candidate_scripts = document.getElementsByTagName('script');
-                                    for (let i = 0; i < arr_candidate_scripts.length; i++) {
-                                        let temp_innerText = arr_candidate_scripts[i].innerText;
-                                        if (temp_innerText) {
-                                            if (temp_innerText.includes('studentAssignmentID')) {
-                                                temp_innerText = temp_innerText.substring(
-                                                    temp_innerText.indexOf(':', temp_innerText.lastIndexOf('studentAssignmentID')) + 1).trim();
-                                                // console.info('innerText', temp_innerText);
-                                                studentAssignmentID = temp_innerText.split(' ')[0].substring(0, temp_innerText.indexOf(',')).trim();
-                                                // console.info('student assignment ID', studentAssignmentID);
+                                        //get problem status
+                                        let messages = document.getElementById('status-message').children;
+                                        let problemStatus;
+                                        for (let i = 0; i < messages.length; i++) {
+                                            if (messages[i].innerText) {
+                                                let status = messages[i].innerText;
+                                                if (status.includes(':')) {
+                                                    problemStatus = status.split(':')[1].trim();
+                                                } else {
+                                                    //example programs arent graded... i think
+                                                    problemStatus = 'Finalized';
+                                                }
                                                 break;
                                             }
                                         }
-                                    }
 
-                                    function formatParams(params) {
-                                        return "?" + Object
-                                            .keys(params)
-                                            .map(function (key) {
-                                                return key + "=" + encodeURIComponent(params[key])
-                                            })
-                                            .join("&")
-                                    }
-
-                                    function getCurrHistory() {
-                                        return new Promise(function (r, j) {
-                                            let historyRequest = new XMLHttpRequest();
-                                            historyRequest.onload = function () {
-                                                r(this.responseText);
-                                            };
-                                            let queryParams = {
-                                                student_assignment_id: studentAssignmentID,
-                                                method: 'get_grading_history'
-                                            };
-                                            historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
-                                            historyRequest.send();
-                                        });
-                                    }
-
-                                    let responseTxt = await getCurrHistory();
-                                    // console.info('curr history response Txt', responseTxt);
-                                    let responseObject = JSON.parse('' + responseTxt);
-                                    let currentGrade = responseObject['current_status'];
-                                    // console.info(currentGrade);
-                                    let pointsAwarded = '' + currentGrade['score'];
-                                    if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
-                                    let maxPoints = currentGrade['out_of'];
-
-                                    // get time worked
-                                    let selectionField = document.getElementById('assignment-submission-select');
-                                    if (selectionField != null) {
-                                        let submissions = selectionField.getElementsByTagName('option');
-                                        for (let i = 0; i < submissions.length; i++) {
-                                            let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
-                                            //attach date 'hours' modifier
-                                            Date.prototype.addHours = function (h) {
-                                                this.setTime(this.getTime() + (h * 60 * 60 * 1000));
-                                                return this;
-                                            };
-                                            if (submissions[i].innerText.includes('p.m.')) {
-                                                date_submissionDate.addHours(12);
+                                        //get student grade
+                                        let studentAssignmentID;
+                                        let arr_candidate_scripts = document.getElementsByTagName('script');
+                                        for (let i = 0; i < arr_candidate_scripts.length; i++) {
+                                            let temp_innerText = arr_candidate_scripts[i].innerText;
+                                            if (temp_innerText) {
+                                                if (temp_innerText.includes('studentAssignmentID')) {
+                                                    temp_innerText = temp_innerText.substring(
+                                                        temp_innerText.indexOf(':', temp_innerText.lastIndexOf('studentAssignmentID')) + 1).trim();
+                                                    // console.info('innerText', temp_innerText);
+                                                    studentAssignmentID = temp_innerText.split(' ')[0].substring(0, temp_innerText.indexOf(',')).trim();
+                                                    // console.info('student assignment ID', studentAssignmentID);
+                                                    break;
+                                                }
                                             }
-                                            let value = submissions[i].getAttribute('value');
-                                            let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
-                                            let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
-
                                         }
-                                    }
 
-                                    studentObject.assignments['' + key] = {
-                                        problemName: problemName,
-                                        firstTryDate: firstTryDate,
-                                        firstTryTime: firstTryTime,
-                                        timeWorkedBeforeDue: '',
-                                        timeWorkedTotal: '',
-                                        onTimeStatus: '',
-                                        problemStatus: problemStatus,
-                                        pointsAwarded: pointsAwarded,
-                                        maxPoints: maxPoints
+                                        function formatParams(params) {
+                                            return "?" + Object
+                                                .keys(params)
+                                                .map(function (key) {
+                                                    return key + "=" + encodeURIComponent(params[key])
+                                                })
+                                                .join("&")
+                                        }
+
+                                        function getCurrHistory() {
+                                            return new Promise(function (r, j) {
+                                                let historyRequest = new XMLHttpRequest();
+                                                historyRequest.onload = function () {
+                                                    r(this.responseText);
+                                                };
+                                                let queryParams = {
+                                                    student_assignment_id: studentAssignmentID,
+                                                    method: 'get_grading_history'
+                                                };
+                                                historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
+                                                historyRequest.send();
+                                            });
+                                        }
+
+                                        let responseTxt = await getCurrHistory();
+                                        // console.info('curr history response Txt', responseTxt);
+                                        let responseObject = JSON.parse('' + responseTxt);
+                                        let currentGrade = responseObject['current_status'];
+                                        // console.info(currentGrade);
+                                        let pointsAwarded = '' + currentGrade['score'];
+                                        if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
+                                        let maxPoints = currentGrade['out_of'];
+
+                                        // get time worked
+                                        let selectionField = document.getElementById('assignment-submission-select');
+                                        if (selectionField != null) {
+                                            let submissions = selectionField.getElementsByTagName('option');
+                                            for (let i = 0; i < submissions.length; i++) {
+                                                let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
+                                                //attach date 'hours' modifier
+                                                Date.prototype.addHours = function (h) {
+                                                    this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+                                                    return this;
+                                                };
+                                                if (submissions[i].innerText.includes('p.m.')) {
+                                                    date_submissionDate.addHours(12);
+                                                }
+                                                let value = submissions[i].getAttribute('value');
+                                                let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
+                                                let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
+
+                                            }
+                                        }
+
+                                        studentObject.assignments['' + key] = {
+                                            problemName: problemName,
+                                            firstTryDate: firstTryDate,
+                                            firstTryTime: firstTryTime,
+                                            timeWorkedBeforeDue: '',
+                                            timeWorkedTotal: '',
+                                            onTimeStatus: '',
+                                            problemStatus: problemStatus,
+                                            pointsAwarded: pointsAwarded,
+                                            maxPoints: maxPoints
+                                        };
+
+                                        res(1);
                                     };
-
-                                    res(1);
-                                };
-                                // console.info(studentObject.id);
-                                // console.info(obj.classId);
-                                // console.info(key);
-                                // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                                xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                                xhr.responseType = "document";
-                                xhr.send();
-                                // console.info('XHR Sent', key);
-                            })
+                                    // console.info(studentObject.id);
+                                    // console.info(obj.classId);
+                                    // console.info(key);
+                                    // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    console.info('[info] stuUrl' , String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    xhr.responseType = "document";
+                                    xhr.send();
+                                    // console.info('XHR Sent', key);
+                                })
+                            });
+                            return Promise.all(allTasks);
                         });
-                        return Promise.all(allTasks);
-                    });
-                }));
+                    }));
 
-                return arr_obj_students;
-            }, arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students
+                    return arr_obj_students;
+                }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students
+            );
+
+            // await sleep(100000);
+
+            await page.close();
+            // console.info('done obj', obj);
+            resolve('done at ' + Date.now());
+        })
+    }
+
+    async function assembleClassQueues() {
+        return new Promise((resolve, reject) => {
+            const spinner = ora({text: `${chalk.bold('Assembling parsing queue')}`}).start();
+
+            let {arr_classes} = sessionData;
+            let {sections} = sessionData;
+
+            let arr_completed = [];
+            arr_classes.forEach(obj => {
+                let teacherName = obj.split('|')[0];
+                let classIdentifier = obj.split('|')[1];
+                if (classIdentifier === '0') {
+                    arr_completed.push(teacherName);
+                    for (let classNum in sections[teacherName].classes) {
+                        if (!sections[teacherName].classes.hasOwnProperty(classNum)) continue;
+                        let obj_todo = {
+                            teacherName: teacherName,
+                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classNum]),
+                            classNum: classNum,
+                            sectionId: sections[teacherName].id,
+                            classId: sections[teacherName].classes[classNum],
+                            students: []
+                        };
+                        arr_objs_classes.push(obj_todo);
+                    }
+                } else {
+                    if (!arr_completed.includes(teacherName)) {
+                        let obj_todo = {
+                            teacherName: teacherName,
+                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classIdentifier]),
+                            classNum: classIdentifier,
+                            sectionId: sections[teacherName].id,
+                            classId: sections[teacherName].classes[classIdentifier],
+                            students: []
+                        };
+                        arr_objs_classes.push(obj_todo);
+                    }
+                }
+            });
+            spinner.succeed(`${chalk.bold('Parse queue assembled')}`);
+            resolve(1);
+        })
+    }
+
+    async function loadSavedSectionIDs() {
+        sessionData.sections = require('./secrets/sections.json');
+    }
+
+    async function parseSectionIDs() {
+        const spinner = ora({text: `${chalk.bold('Parsing section IDs...')}`}).start();
+
+        const pg = await browser.newPage();
+        let teacherID;
+        if (require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
+            teacherID = require('./secrets/teacher.json').teacherID;
+        } else {
+
+            // just in case the login step was somehow skipped??
+            // or corrupted data ig
+            const response = await prompts({
+                type: 'number',
+                name: 'teacherID',
+                message: 'Enter your teacherID (found in url after logging in)'
+            });
+
+            teacherID = response.teacherID;
+        }
+
+        await pg.goto(format(links.teachersPage, teacherID), {waitUntil: 'networkidle2'});
+
+        // make this part optional (could be manual) b/c not everyone has same naming formats
+        let sections = await pg.evaluate(() => {
+            let tmp_arr_secs = document.getElementsByClassName('teachercourse-header');
+
+            let sections = {};
+
+            for (let i = 0; i < tmp_arr_secs.length; i++) {
+                let container = tmp_arr_secs[i].getElementsByClassName('course-title')[0];
+
+                let name = container.innerHTML.toString().trim().substring(0, container.innerHTML.toString().trim().indexOf(' '));
+                // console.info(name);
+                let tmp_id_split = container.href.toString().split('/');
+                let teacherURL = tmp_id_split[tmp_id_split.length - 1];
+                let selectors = document.querySelectorAll('[data-teacher-course-id="' + teacherURL + '"]');
+                let teacherObj = {
+                    id: teacherURL
+                };
+                let classesObj = {};
+                for (let j = 0; j < selectors.length; j++) {
+                    let name = selectors[j].getAttribute('data-dropdown-section-name');
+                    let classNum = name.substring(1, name.indexOf(' '));
+                    classesObj[classNum + ''] = selectors[j].getAttribute('data-class-id');
+                }
+                teacherObj.classes = classesObj;
+                sections[name + ''] = teacherObj;
+            }
+
+            return sections;
+        });
+
+        // console.info(sections);
+        await writeFileAsync('./secrets/sections.json', JSON.stringify(sections));
+
+        sessionData.sections = sections;
+
+        await pg.close();
+
+        spinner.succeed(`${chalk.bold('Section IDs saved in ./secrets/sections.json')}`);
+    }
+
+
+    async function promptAssignmentOptions() {
+        return new Promise(async (resolve, reject) => {
+            const response = await prompts([
+                    {
+                        type: 'list',
+                        name: 'arr_assignments',
+                        message: `Enter assignment names (separated by ${chalk.bold(',')})`,
+                        initial: '',
+                        separator: ',',
+                        validate: val => val.toString().length > 0 ? true : 'Enter at least one assignment!'
+                    },
+                    {
+                        type: 'date',
+                        name: 'date_dueDate',
+                        message: 'When are these assignments due?',
+                        initial: new Date(2019, 1, 11),
+                        mask: 'YYYY-MM-DD HH:mm'
+                    },
+                    {
+                        type: 'multiselect',
+                        name: 'arr_classes',
+                        message: 'Pick which classes to grade',
+                        choices: buildOptions(),
+                        min: 1,
+                        hint: '- Space to select. Return to submit',
+                        instructions: false
+                    }
+                ]
+            );
+
+            sessionData['date_dueDate'] = response['date_dueDate'];
+            sessionData['arr_assignments'] = response['arr_assignments'];
+            sessionData['arr_classes'] = response['arr_classes'];
+
+            resolve('i');
+
+            function buildOptions() {
+                let options = [];
+                let {sections} = sessionData;
+                for (let key in sections) {
+                    if (sections.hasOwnProperty(key)) {
+                        options.push({
+                            title: `All ${key} Classes`, value: `${key}|0`
+                        })
+                    }
+                }
+
+                //run for-loop again to preserve ordering
+                for (let key in sections) {
+                    if (sections.hasOwnProperty(key)) {
+
+                        //'...' deconstructs the mapped array into the options array
+                        options.push(...Object.keys(sections[key].classes).map(pNum => {
+                            return {
+                                title: `P${pNum} ${key}`, value: `${key}|${pNum}`
+                            }
+                        }));
+                    }
+                }
+                return options;
+            }
+        });
+    }
+
+    function doneSetupExit() {
+        console.info(`That\'s alright, ${chalk.bold('npm start legacy_index.js')} to run again!`);
+        process.exit();
+    }
+
+    async function continueConfirmation() {
+        return new Promise(async (resolve, reject) => {
+            const response = await prompts({
+                type: 'confirm',
+                name: 'tmp_confirm',
+                message: 'Continue to generating class assignments data?'
+            });
+
+            let {tmp_confirm} = response;
+            if (tmp_confirm) {
+                resolve(1);
+            } else {
+                reject(0);
+            }
+        })
+    }
+
+
+    async function startPuppeteer() {
+        browser = await puppeteer.launch({
+            // headless: false //TODO: remove for production
+        });
+    }
+
+    async function stopPuppeteer() {
+        try {
+            await browser.close();
+        } catch (e) {
+            // oop
+        } finally {
+            await browser.close();
+        }
+    }
+
+    function codeHSCredInvalidExit() {
+        console.info('Perhaps you changed your credentials on codehs.com?');
+        process.exit();
+    }
+
+    async function testCredentials() {
+        return new Promise(async (resolve, reject) => {
+            const spinner = ora({text: `${chalk.bold('Testing credentials...')}`}).start();
+
+            const page = await browser.newPage();
+
+            await loginCodeHS(page).then(async suc => {
+                if (!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))) {
+                    await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                }
+                spinner.succeed(`${chalk.bold('Login credentials valid')}`);
+            }).catch(err => {
+                spinner.fail(`${chalk.red('Login credentials invalid...')}`);
+                reject(0);
+            });
+
+            resolve(1);
+        })
+    }
+
+    async function loadCredentialsPrompts() {
+        let resizedIV = Buffer.allocUnsafe(16),
+            iv = crypto
+                .createHash("sha256")
+                .update('doc says this could be null... it can\'t')
+                .digest();
+        iv.copy(resizedIV);
+
+        let credJSON = require('./secrets/creds.json');
+        let {method} = credJSON;
+        sessionData.email = credJSON.email;
+        if (method === 'none') {
+            sessionData.password = credJSON.password || ' '
+        } else if (method === 'pwd' || method === 'pin') {
+            function cValidator(val) {
+                if (method === 'pwd') {
+                    return validator.isAlphanumeric(val + '');
+                } else if (method === 'pin') {
+                    return validator.matches(val + '', /\b\d{4}\b/);
+                } else {
+                    return false;
+                }
+            }
+
+            const response = await prompts({
+                type: 'password',
+                name: 'pwd',
+                message: `Enter your ${method === 'pwd' ? 'password' : 'pin'}`,
+                validate: val => cValidator(val) ? true : `That could not be your ${method === 'pwd' ? 'password' : 'pin'}`
+            });
+
+            let {pwd} = response;
+            let key = crypto.createHash('md5').update(pwd + '').digest();
+
+            let decrypted, decryptCipher;
+            try {
+                decryptCipher = crypto.createDecipheriv('aes-128-cbc', key, resizedIV);
+                decrypted = decryptCipher.update(Buffer.from(credJSON.password, 'hex'));
+                decrypted = Buffer.concat([decrypted, decryptCipher.final()]);
+            } catch {
+                console.log(`${chalk.red(`Your ${method === 'pwd' ? 'password' : 'pin'} was incorrect... exiting...`)}`);
+                process.exit();
+            }
+
+            sessionData.password = decrypted.toString();
+        } else {
+            console.info('Unknown save method, quitting...');
+            process.exit();
+        }
+    }
+
+    function onCancel(prompt) {
+        console.log(`${chalk.red('Canceling session')}`);
+        process.exit();
+    }
+
+    async function setCredentialsPrompts() {
+        sessionData = await prompts([
+                {
+                    type: 'text',
+                    name: 'email',
+                    message: 'What is your CodeHS email?',
+                    validate: value => validator.isEmail(value + '') ? true : 'Enter a valid email'
+                },
+                {
+                    type: 'password',
+                    name: 'password',
+                    message: 'What is your CodeHS password?',
+                    validate: value => validator.isAlphanumeric(value + '')
+                }
+            ], {onCancel}
         );
-        await page.close();
-        // console.info('done obj', obj);
-        resolve('done at ' + Date.now());
-    })
+    }
+
+    async function promptSavePwdOptions() {
+        let resizedIV = Buffer.allocUnsafe(16),
+            iv = crypto
+                .createHash("sha256")
+                .update('doc says this could be null... it can\'t')
+                .digest();
+        iv.copy(resizedIV);
+
+        let saveData = await prompts([
+            {
+                type: 'confirm',
+                name: 'save',
+                message: 'Save credentials?'
+            },
+            {
+                type: prev => prev ? 'select' : null,
+                name: 'method',
+                message: 'Security level:',
+                choices: [
+                    {
+                        title: 'Pin', description: '4 Digits Code', value: 'pin',
+                    },
+                    {
+                        title: 'Password', description: 'Alphanumerical (1+)', value: 'pwd',
+                    },
+                    {
+                        title: 'None', description: 'No Security', value: 'none',
+                    },
+                    {
+                        title: 'Cancel', description: 'Nvm, Don\'t Save!', value: 'cancel'
+                    }
+                ],
+                hint: '- up/down to navigate. return to submit',
+                initial: 0
+            },
+            {
+                type: prev => prev === 'pin' ? 'password' : null,
+                name: 'pin',
+                message: 'Enter a 4-digit pin',
+                validate: val => validator.matches(val + '', /\b\d{4}\b/)
+            },
+            {
+                type: prev => prev === 'pwd' ? 'password' : null,
+                name: 'pwd',
+                message: 'Enter a password',
+                validate: val => validator.isAlphanumeric(val + '')
+            }
+        ], {onCancel});
+
+        let {save} = saveData;
+
+        if (save) {
+            let {method} = saveData;
+
+            let {email} = sessionData;
+            let {password} = sessionData;
+
+            if (method === 'none') {
+                // no security or hash, move on !
+            } else if (method === 'pin') {
+                let {pin} = saveData;
+                let key = crypto.createHash('md5').update(pin + '').digest();
+                await prompts({
+                    type: 'password',
+                    name: 'tmp_confirm',
+                    message: 'Confirm your pin',
+                    validate: val => val === pin ? true : 'That\'s not your pin!'
+                }, {onCancel});
+                let cryptoKey = crypto.createCipheriv('aes-128-cbc', key, resizedIV);
+                password = cryptoKey.update(password, 'utf8', 'hex');
+                password += cryptoKey.final('hex');
+            } else if (method === 'pwd') {
+                let {pwd} = saveData;
+                let key = crypto.createHash('md5').update(pwd + '').digest();
+                await prompts({
+                    type: 'password',
+                    name: 'tmp_confirm',
+                    message: 'Confirm your password',
+                    validate: val => val === pwd ? true : 'That\'s not your password!'
+                }, {onCancel});
+                let cryptoKey = crypto.createCipheriv('aes-128-cbc', key, resizedIV);
+                password = cryptoKey.update(password, 'utf8', 'hex');
+                password += cryptoKey.final('hex');
+            } else {
+                // cancel
+                process.exit();
+            }
+
+            //finally, write finalized email/password to file
+
+            await writeFileAsync('secrets/creds.json', JSON.stringify({
+                method: method,
+                email: email,
+                password: password
+            }))
+        }
+    }
+})();
+
+function loginCodeHS(pg) {
+    return new Promise(async (resolve, reject) => {
+        resolve('assume credentials are correct'); //TODO: remove on prod
+        let warningsLength;
+        let teacherID;
+        try {
+            await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
+
+            const EMAIL_SELECTOR = '#login-email';
+            const PASSWORD_SELECTOR = '#login-password';
+            const BUTTON_SELECTOR = '#login-submit';
+
+            await pg.click(EMAIL_SELECTOR);
+            await pg.keyboard.type(sessionData['email']);
+
+            await pg.click(PASSWORD_SELECTOR);
+            await pg.keyboard.type(sessionData['password']);
+
+            await pg.click(BUTTON_SELECTOR);
+
+            await pg.waitForNavigation();
+
+            teacherID = await pg.evaluate(() => {
+                let urlSplit = window.location.href.toString().split('/');
+                return urlSplit[urlSplit.length - 1];
+            });
+
+            warningsLength = await pg.evaluate(() => {
+                return document.getElementsByClassName('form-alert-red').length;
+            });
+
+            await pg.close();
+        } catch {
+            reject(-1);
+        }
+        if (warningsLength === 0) {
+            resolve(teacherID);
+        } else {
+            reject(warningsLength);
+        }
+    });
 }
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+async function writeFileAsync(path, content) {
+    return new Promise((resolve, reject) => {
+        ensureDirectoryExistence(path);
+        fs.writeFile(path, content, function (err) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve('ok');
+            }
+        })
+    });
+}
+
+function ensureDirectoryExistence(filePath) {
+    let dirname = path.dirname(filePath);
+    if (fs.existsSync(dirname)) {
+        return true;
+    }
+    ensureDirectoryExistence(dirname);
+    fs.mkdirSync(dirname);
+}
+
+function savedCredsExist() {
+    try {
+        return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
+    } catch {
+        return false;
+    }
+}
+
+function savedSectionsIDExist() {
+    try {
+        return fs.existsSync(path.join(__dirname, '/secrets/sections.json'));
+    } catch {
+        return false;
+    }
+}
+
+String.prototype.replaceAll = function(search, replacement){
+    return this.split(search).join(replacement);
+};

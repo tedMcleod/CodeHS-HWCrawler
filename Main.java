@@ -81,7 +81,7 @@ public class Main {
             commandLineArguments += encodeAssignments(assignments) + " ";
             commandLineArguments += "2 m0 s0"; //two items, m0 -> mcleod all periods, s0 sullivan all periods
             try {
-                final Process p = Runtime.getRuntime().exec("node index.js" + commandLineArguments);
+                final Process p = Runtime.getRuntime().exec("node legacy_index.js" + commandLineArguments);
                 new Thread(() -> {
                     BufferedReader input = new BufferedReader(new InputStreamReader(p.getInputStream()));
                     String line;
