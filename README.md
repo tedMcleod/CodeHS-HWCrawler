@@ -12,9 +12,16 @@ npm install code_hs_crawler
 
 ## Usage
 
-Run Main.java
+```bash
+npm start
+```
+
+## Troubleshooting
+##### Problem names in output are not matching input names
+Delete the ./cached directory as problem IDs may have changed
+
+##### Why are there '--' in each of the output fields?
+The assignment may have been removed and could not be found, no real solutions as of right now.
 
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
-Please make sure to update tests as appropriate.
