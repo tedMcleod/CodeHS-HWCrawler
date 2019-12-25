@@ -8,7 +8,8 @@ const prompts = require('prompts'),
     format = require('string-format'),
     links = require('./templates/links'),
     pLimit = require('p-limit'),
-    netLimit = pLimit(1);
+    netLimit = pLimit(1),
+    archiver = require('archiver');
 
 let crypto, browser;
 try {
@@ -20,6 +21,9 @@ try {
 
 let sessionData = {rebuildCache: false},
     arr_objs_classes = [];
+
+let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateObjRN.getUTCDate(), yearRN = dateObjRN.getUTCFullYear(),
+    dateStrRN = yearRN + "/" + monthRN + "/" + dayRN;
 
 /*
              _     _ _            _        _   _                   _     _                   _          ____ _        _             __ __                     __
@@ -54,8 +58,9 @@ let sessionData = {rebuildCache: false},
 
     await assembleClassQueues();
 
-    await parseEachClassObj();
+    await promptSaveDataOptions();
 
+    await parseWriteEachClassObj();
 
     await stopPuppeteer();
 
@@ -69,7 +74,441 @@ let sessionData = {rebuildCache: false},
 
      */
 
-    async function parseEachClassObj() {
+    async function startPuppeteer() {
+        browser = await puppeteer.launch({
+            // headless: false //TODO: remove for production
+        });
+    }
+
+
+    /* <!--- CodeHS Credentials Functions ---> */
+
+    function savedCredsExist() {
+        try {
+            return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
+        } catch {
+            return false;
+        }
+    }
+
+    async function loadCredentialsPrompts() {
+        let resizedIV = Buffer.allocUnsafe(16),
+            iv = crypto
+                .createHash("sha256")
+                .update('doc says this could be null... it can\'t')
+                .digest();
+        iv.copy(resizedIV);
+
+        let credJSON = require('./secrets/creds.json');
+        let {method} = credJSON;
+        sessionData.email = credJSON.email;
+        if (method === 'none') {
+            sessionData.password = credJSON.password || ' '
+        } else if (method === 'pwd' || method === 'pin') {
+            function cValidator(val) {
+                if (method === 'pwd') {
+                    return validator.isAlphanumeric(val + '');
+                } else if (method === 'pin') {
+                    return validator.matches(val + '', /\b\d{4}\b/);
+                } else {
+                    return false;
+                }
+            }
+
+            const response = await prompts({
+                type: 'password',
+                name: 'pwd',
+                message: `Enter your ${method === 'pwd' ? 'password' : 'pin'}`,
+                validate: val => cValidator(val) ? true : `That could not be your ${method === 'pwd' ? 'password' : 'pin'}`
+            });
+
+            let {pwd} = response;
+            let key = crypto.createHash('md5').update(pwd + '').digest();
+
+            let decrypted, decryptCipher;
+            try {
+                decryptCipher = crypto.createDecipheriv('aes-128-cbc', key, resizedIV);
+                decrypted = decryptCipher.update(Buffer.from(credJSON.password, 'hex'));
+                decrypted = Buffer.concat([decrypted, decryptCipher.final()]);
+            } catch {
+                console.log(`${chalk.red(`Your ${method === 'pwd' ? 'password' : 'pin'} was incorrect... exiting...`)}`);
+                process.exit();
+            }
+
+            sessionData.password = decrypted.toString();
+        } else {
+            console.info('Unknown save method, quitting...');
+            process.exit();
+        }
+    }
+
+    async function testCredentials() {
+        return new Promise(async (resolve, reject) => {
+            const spinner = ora({text: `${chalk.bold('Testing credentials...')}`}).start();
+
+            const page = await browser.newPage();
+
+            await loginCodeHS(page).then(async suc => {
+                if (!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))) {
+                    await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                }
+                spinner.succeed(`${chalk.bold('Login credentials valid')}`);
+            }).catch(err => {
+                spinner.fail(`${chalk.red('Login credentials invalid...')}`);
+                reject(0);
+            });
+
+            resolve(1);
+        })
+    }
+
+    function codeHSCredInvalidExit() {
+        console.info('Perhaps you changed your credentials on codehs.com?');
+        process.exit();
+    }
+
+    async function setCredentialsPrompts() {
+        sessionData = await prompts([
+                {
+                    type: 'text',
+                    name: 'email',
+                    message: 'What is your CodeHS email?',
+                    validate: value => validator.isEmail(value + '') ? true : 'Enter a valid email'
+                },
+                {
+                    type: 'password',
+                    name: 'password',
+                    message: 'What is your CodeHS password?',
+                    validate: value => validator.isAlphanumeric(value + '')
+                }
+            ], {onCancel: onPromptsCancel}
+        );
+    }
+
+    async function promptSavePwdOptions() {
+        let resizedIV = Buffer.allocUnsafe(16),
+            iv = crypto
+                .createHash("sha256")
+                .update('doc says this could be null... it can\'t')
+                .digest();
+        iv.copy(resizedIV);
+
+        let saveData = await prompts([
+            {
+                type: 'confirm',
+                name: 'save',
+                message: 'Save credentials?'
+            },
+            {
+                type: prev => prev ? 'select' : null,
+                name: 'method',
+                message: 'Security level:',
+                choices: [
+                    {
+                        title: 'Pin', description: '4 Digits Code', value: 'pin',
+                    },
+                    {
+                        title: 'Password', description: 'Alphanumerical (1+)', value: 'pwd',
+                    },
+                    {
+                        title: 'None', description: 'No Security', value: 'none',
+                    },
+                    {
+                        title: 'Cancel', description: 'Nvm, Don\'t Save!', value: 'cancel'
+                    }
+                ],
+                hint: '- up/down to navigate. return to submit',
+                initial: 0
+            },
+            {
+                type: prev => prev === 'pin' ? 'password' : null,
+                name: 'pin',
+                message: 'Enter a 4-digit pin',
+                validate: val => validator.matches(val + '', /\b\d{4}\b/)
+            },
+            {
+                type: prev => prev === 'pwd' ? 'password' : null,
+                name: 'pwd',
+                message: 'Enter a password',
+                validate: val => validator.isAlphanumeric(val + '')
+            }
+        ], {onCancel: onPromptsCancel});
+
+        let {save} = saveData;
+
+        if (save) {
+            let {method} = saveData;
+
+            let {email} = sessionData;
+            let {password} = sessionData;
+
+            if (method === 'none') {
+                // no security or hash, move on !
+            } else if (method === 'pin') {
+                let {pin} = saveData;
+                let key = crypto.createHash('md5').update(pin + '').digest();
+                await prompts({
+                    type: 'password',
+                    name: 'tmp_confirm',
+                    message: 'Confirm your pin',
+                    validate: val => val === pin ? true : 'That\'s not your pin!'
+                }, {onCancel: onPromptsCancel});
+                let cryptoKey = crypto.createCipheriv('aes-128-cbc', key, resizedIV);
+                password = cryptoKey.update(password, 'utf8', 'hex');
+                password += cryptoKey.final('hex');
+            } else if (method === 'pwd') {
+                let {pwd} = saveData;
+                let key = crypto.createHash('md5').update(pwd + '').digest();
+                await prompts({
+                    type: 'password',
+                    name: 'tmp_confirm',
+                    message: 'Confirm your password',
+                    validate: val => val === pwd ? true : 'That\'s not your password!'
+                }, {onCancel: onPromptsCancel});
+                let cryptoKey = crypto.createCipheriv('aes-128-cbc', key, resizedIV);
+                password = cryptoKey.update(password, 'utf8', 'hex');
+                password += cryptoKey.final('hex');
+            } else {
+                // cancel
+                process.exit();
+            }
+
+            //finally, write finalized email/password to file
+
+            await writeFileAsync('secrets/creds.json', JSON.stringify({
+                method: method,
+                email: email,
+                password: password
+            }))
+        }
+    }
+
+    async function continueConfirmation() {
+        return new Promise(async (resolve, reject) => {
+            const response = await prompts({
+                type: 'confirm',
+                name: 'tmp_confirm',
+                message: 'Continue to generating class assignments data?'
+            });
+
+            let {tmp_confirm} = response;
+            if (tmp_confirm) {
+                resolve(1);
+            } else {
+                reject(0);
+            }
+        })
+    }
+
+
+    /* <!--- Assignments Table Cache Functions ---> */
+
+    function savedSectionsIDExist() {
+        try {
+            return fs.existsSync(path.join(__dirname, '/secrets/sections.json'));
+        } catch {
+            return false;
+        }
+    }
+
+    async function loadSavedSectionIDs() {
+        sessionData.sections = require('./secrets/sections.json');
+    }
+
+    async function parseSectionIDs() {
+        const spinner = ora({text: `${chalk.bold('Parsing section IDs...')}`}).start();
+
+        const pg = await browser.newPage();
+        let teacherID;
+        if (require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
+            teacherID = require('./secrets/teacher.json').teacherID;
+        } else {
+
+            // just in case the login step was somehow skipped??
+            // or corrupted data ig
+            const response = await prompts({
+                type: 'number',
+                name: 'teacherID',
+                message: 'Enter your teacherID (found in url after logging in)'
+            });
+
+            teacherID = response.teacherID;
+        }
+
+        await pg.goto(format(links.teachersPage, teacherID), {waitUntil: 'networkidle2'});
+
+        // make this part optional (could be manual) b/c not everyone has same naming formats
+        let sections = await pg.evaluate(() => {
+            let tmp_arr_secs = document.getElementsByClassName('teachercourse-header');
+
+            let sections = {};
+
+            for (let i = 0; i < tmp_arr_secs.length; i++) {
+                let container = tmp_arr_secs[i].getElementsByClassName('course-title')[0];
+
+                let name = container.innerHTML.toString().trim().substring(0, container.innerHTML.toString().trim().indexOf(' '));
+                // console.info(name);
+                let tmp_id_split = container.href.toString().split('/');
+                let teacherURL = tmp_id_split[tmp_id_split.length - 1];
+                let selectors = document.querySelectorAll('[data-teacher-course-id="' + teacherURL + '"]');
+                let teacherObj = {
+                    id: teacherURL
+                };
+                let classesObj = {};
+                for (let j = 0; j < selectors.length; j++) {
+                    let name = selectors[j].getAttribute('data-dropdown-section-name');
+                    let classNum = name.substring(1, name.indexOf(' '));
+                    classesObj[classNum + ''] = selectors[j].getAttribute('data-class-id');
+                }
+                teacherObj.classes = classesObj;
+                sections[name + ''] = teacherObj;
+            }
+
+            return sections;
+        });
+
+        // console.info(sections);
+        await writeFileAsync('./secrets/sections.json', JSON.stringify(sections));
+
+        sessionData.sections = sections;
+
+        await pg.close();
+
+        spinner.succeed(`${chalk.bold('Section IDs saved in ./secrets/sections.json')}`);
+    }
+
+
+    /* <!--- CodeHS Parse Configuration Functions ---> */
+
+    async function promptAssignmentOptions() {
+        return new Promise(async (resolve, reject) => {
+            const response = await prompts([
+                    {
+                        type: 'list',
+                        name: 'arr_assignments',
+                        message: `Enter assignment names (separated by ${chalk.bold(',')})`,
+                        initial: '',
+                        separator: ',',
+                        validate: val => val.toString().length > 0 ? true : 'Enter at least one assignment!'
+                    },
+                    {
+                        type: 'date',
+                        name: 'date_dueDate',
+                        message: 'When are these assignments due?',
+                        initial: new Date(yearRN, monthRN - 1, dayRN, 23, 59),
+                        mask: 'YYYY-MM-DD HH:mm'
+                    },
+                    {
+                        type: 'multiselect',
+                        name: 'arr_classes',
+                        message: 'Pick which classes to grade',
+                        choices: buildOptions(),
+                        min: 1,
+                        hint: '- Space to select. Return to submit',
+                        instructions: false
+                    }
+                ]
+            );
+
+            sessionData['date_dueDate'] = response['date_dueDate'];
+            sessionData['arr_assignments'] = response['arr_assignments'];
+            sessionData['arr_classes'] = response['arr_classes'];
+
+            resolve('i');
+
+            function buildOptions() {
+                let options = [];
+                let {sections} = sessionData;
+                for (let key in sections) {
+                    if (sections.hasOwnProperty(key)) {
+                        options.push({
+                            title: `All ${key} Classes`, value: `${key}|0`
+                        })
+                    }
+                }
+
+                //run for-loop again to preserve ordering
+                for (let key in sections) {
+                    if (sections.hasOwnProperty(key)) {
+
+                        //'...' deconstructs the mapped array into the options array
+                        options.push(...Object.keys(sections[key].classes).map(pNum => {
+                            return {
+                                title: `P${pNum} ${key}`, value: `${key}|${pNum}`
+                            }
+                        }));
+                    }
+                }
+                return options;
+            }
+        });
+    }
+
+    async function assembleClassQueues() {
+        return new Promise((resolve, reject) => {
+            const spinner = ora({text: `${chalk.bold('Assembling parsing queue')}`}).start();
+
+            let {arr_classes} = sessionData;
+            let {sections} = sessionData;
+
+            let arr_completed = [];
+            arr_classes.forEach(obj => {
+                let teacherName = obj.split('|')[0];
+                let classIdentifier = obj.split('|')[1];
+                if (classIdentifier === '0') {
+                    arr_completed.push(teacherName);
+                    for (let classNum in sections[teacherName].classes) {
+                        if (!sections[teacherName].classes.hasOwnProperty(classNum)) continue;
+                        let obj_todo = {
+                            teacherName: teacherName,
+                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classNum]),
+                            classNum: classNum,
+                            sectionId: sections[teacherName].id,
+                            classId: sections[teacherName].classes[classNum],
+                            students: []
+                        };
+                        arr_objs_classes.push(obj_todo);
+                    }
+                } else {
+                    if (!arr_completed.includes(teacherName)) {
+                        let obj_todo = {
+                            teacherName: teacherName,
+                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classIdentifier]),
+                            classNum: classIdentifier,
+                            sectionId: sections[teacherName].id,
+                            classId: sections[teacherName].classes[classIdentifier],
+                            students: []
+                        };
+                        arr_objs_classes.push(obj_todo);
+                    }
+                }
+            });
+            spinner.succeed(`${chalk.bold('Parse queue assembled')}`);
+            resolve(1);
+        })
+    }
+
+
+    /* <!--- File Writing Configuration Functions ---> */
+
+    async function promptSaveDataOptions(){
+        const response = await prompts({
+            type: 'multiselect',
+            name: 'chosenOptions',
+            message: 'Download what?',
+            choices: [
+                { title: 'Student\'s score', value: 'score', selected: true },
+                { title: 'Student\'s code', value: 'code', selected: true}
+            ],
+            min: 1,
+            hint: '- Space to select. Return to submit',
+            instructions: false
+        });
+
+        sessionData['downloadOptions'] = response.chosenOptions;
+    }
+
+    async function parseWriteEachClassObj() {
         await Promise.all(arr_objs_classes.map((obj) => {
             return netLimit(() => combinedSteps(obj))
         }));
@@ -78,78 +517,13 @@ let sessionData = {rebuildCache: false},
     async function combinedSteps(classObj) {
         return new Promise(async (a, b) => {
             const spinner = ora({text: `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Preparing...`)}`}).start();
+
             await parseClassPages(classObj, arr_objs_classes, browser, spinner);
+            spinner.text = `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Writing files...`)}`;
             await writeClass(classObj);
-            spinner.succeed(`${chalk.bold(`./out/data/${classObj.teacherName + '_P' + classObj.classNum} was updated`)}`);
+            spinner.succeed(`${chalk.bold(`./out/~/${classObj.teacherName + '_P' + classObj.classNum} has been completed`)}`);
             a(Date.now());
         })
-    }
-
-    function writeClass(classObj) {
-        return new Promise((re, reje) => {
-            let {date_dueDate, arr_assignments} = sessionData;
-            let content_rows = [];
-            let headers = ['Name', 'Period', 'E-mail'];
-
-            let outPath = './out/data/' + classObj.teacherName + '_P' + classObj.classNum + '/';
-            arr_assignments.forEach(assignmentName => {
-                // console.info('assignmentName' , assignmentName);
-                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
-                outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
-            });
-            outPath = outPath.trim().replaceAll(' ', '_') + '.csv';
-            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
-            content_rows.push(headers);
-            classObj.students.forEach(studentObj => {
-                let studentRow = [];
-                studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
-                studentRow.push(classObj.classNum);
-                studentRow.push(studentObj.email);
-
-                Number.prototype.padLeft = function (base, chr) {
-                    let len = (String(base || 10).length - String(this).length) + 1;
-                    return len > 0 ? new Array(len).join(chr || '0') + this : this;
-                };
-
-                let totalAwarded = 0;
-                let totalPossible = 0;
-
-                Object.keys(studentObj.assignments).forEach(assignmentIDs => {
-                    studentRow.push(studentObj.assignments[assignmentIDs].problemName);
-                    let d = date_dueDate;
-                    studentRow.push([(d.getMonth() + 1).padLeft(),
-                            d.getDate().padLeft(),
-                            d.getFullYear()].join('/') + ' ' +
-                        [d.getHours().padLeft(),
-                            d.getMinutes().padLeft(),
-                            d.getSeconds().padLeft()].join(':'));
-                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
-                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
-                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
-                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
-                    studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
-                    studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
-                    studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
-                    totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
-                    totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
-                });
-
-                studentRow.push(totalAwarded);
-                studentRow.push(totalPossible);
-                studentRow.push('tbd');
-                content_rows.push(studentRow);
-            });
-            let csvContent = content_rows.map(e => e.join(",")).join("\n");
-
-            ensureDirectoryExistence(outPath);
-            fs.writeFile(outPath, csvContent, function (err) {
-                if (err) {
-                    reje('failed');
-                    return console.log(err);
-                }
-                re(classObj.teacherName + '_P' + classObj.classNum);
-            })
-        });
     }
 
     async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
@@ -363,12 +737,12 @@ let sessionData = {rebuildCache: false},
 
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
 
-            await pathExists('./node_modules/bottleneck/es5.js').then (async suc => {
+            await pathExists('./node_modules/bottleneck/es5.js').then(async suc => {
                 await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
             }).catch(async err => {
-                await pathExists('../../node_modules/bottleneck/es5.js').then (async suc => {
+                await pathExists('../../node_modules/bottleneck/es5.js').then(async suc => {
                     await page.addScriptTag({path: '../../node_modules/bottleneck/es5.js'});
-                }).catch(err=> {
+                }).catch(err => {
                     console.info(chalk.bold.red('Could not find the \'bottleneck\' module'));
                     process.exit();
                 })
@@ -420,7 +794,7 @@ let sessionData = {rebuildCache: false},
                                             startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
                                         } catch {
                                             studentObject.assignments['' + key] = {
-                                                problemName: problemName.includes('201') ? 'Problem Removed': problemName,
+                                                problemName: problemName.includes('201') ? 'Problem Removed' : problemName,
                                                 firstTryDate: '--',
                                                 firstTryTime: '--',
                                                 timeWorkedBeforeDue: '--',
@@ -428,7 +802,12 @@ let sessionData = {rebuildCache: false},
                                                 onTimeStatus: '--',
                                                 problemStatus: 'Problem Removed',
                                                 pointsAwarded: '--',
-                                                maxPoints: '--'
+                                                maxPoints: '--',
+                                                studentCodes: [{
+                                                    submissionTime: '--',
+                                                    code: '--- --- --- NO CODE AVAILABLE --- --- ---',
+                                                    ID: '--'
+                                                }]
                                             };
 
                                             res(1);
@@ -522,10 +901,17 @@ let sessionData = {rebuildCache: false},
 
                                         // get time worked
                                         let selectionField = document.getElementById('assignment-submission-select');
+
+                                        //holds all of a student's code
+                                        let arr_obj_studentCodes = [];
                                         if (selectionField != null) {
                                             let submissions = selectionField.getElementsByTagName('option');
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
+                                                date_submissionDate.setFullYear(2020);
+                                                if(date_submissionDate > new Date()){
+                                                    date_submissionDate.setFullYear(2019)
+                                                }
                                                 //attach date 'hours' modifier
                                                 Date.prototype.addHours = function (h) {
                                                     this.setTime(this.getTime() + (h * 60 * 60 * 1000));
@@ -540,10 +926,23 @@ let sessionData = {rebuildCache: false},
                                                 //TODO Figure out grading based on timeSpent
 
                                                 //get student's code
-                                                let codeVersions = [];
+                                                let container_codeSnapshot = document.getElementById('snapshot-submission-' + value);
+                                                let code = '--- --- --- NO CODE AVAILABLE --- --- ---';
 
-                                                function removeFormattingCharacters(str){
-                                                    return str.replace(/(\\r\\n|\\r|\\n|\\t)/igm, ' ').replace(/ +/gm, '');
+                                                let rawCode;
+                                                if (container_codeSnapshot) {
+                                                    rawCode = JSON.parse(container_codeSnapshot.innerText)['default.js'];
+                                                    code = removeFormattingCharacters(rawCode);
+                                                }
+
+                                                arr_obj_studentCodes.push({
+                                                    submissionTime: date_submissionDate.toUTCString(),
+                                                    code: code,
+                                                    ID: 'snapshot-submission-' + value
+                                                });
+
+                                                function removeFormattingCharacters(str) {
+                                                    return str.replace(/[\n\r\t]/g,' ').replace(/ {2,}/g, '');
                                                 }
                                             }
                                         }
@@ -557,7 +956,8 @@ let sessionData = {rebuildCache: false},
                                             onTimeStatus: '',
                                             problemStatus: problemStatus,
                                             pointsAwarded: pointsAwarded,
-                                            maxPoints: maxPoints
+                                            maxPoints: maxPoints,
+                                            studentCodes: arr_obj_studentCodes
                                         };
 
                                         res(1);
@@ -567,7 +967,7 @@ let sessionData = {rebuildCache: false},
                                     // console.info(key);
                                     // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                     xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                                    console.info('[info] stuUrl' , String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    console.info('[info] stuUrl', String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                     xhr.responseType = "document";
                                     xhr.send();
                                     // console.info('XHR Sent', key);
@@ -589,208 +989,130 @@ let sessionData = {rebuildCache: false},
         })
     }
 
-    async function assembleClassQueues() {
-        return new Promise((resolve, reject) => {
-            const spinner = ora({text: `${chalk.bold('Assembling parsing queue')}`}).start();
-
-            let {arr_classes} = sessionData;
-            let {sections} = sessionData;
-
-            let arr_completed = [];
-            arr_classes.forEach(obj => {
-                let teacherName = obj.split('|')[0];
-                let classIdentifier = obj.split('|')[1];
-                if (classIdentifier === '0') {
-                    arr_completed.push(teacherName);
-                    for (let classNum in sections[teacherName].classes) {
-                        if (!sections[teacherName].classes.hasOwnProperty(classNum)) continue;
-                        let obj_todo = {
-                            teacherName: teacherName,
-                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classNum]),
-                            classNum: classNum,
-                            sectionId: sections[teacherName].id,
-                            classId: sections[teacherName].classes[classNum],
-                            students: []
-                        };
-                        arr_objs_classes.push(obj_todo);
-                    }
-                } else {
-                    if (!arr_completed.includes(teacherName)) {
-                        let obj_todo = {
-                            teacherName: teacherName,
-                            url: format(links.homePage, sections[teacherName].id, sections[teacherName].classes[classIdentifier]),
-                            classNum: classIdentifier,
-                            sectionId: sections[teacherName].id,
-                            classId: sections[teacherName].classes[classIdentifier],
-                            students: []
-                        };
-                        arr_objs_classes.push(obj_todo);
-                    }
-                }
+    function writeClass(classObj) {
+        return new Promise(async (re, reje) => {
+            let {downloadOptions} = sessionData;
+            let writeQueue = [];
+            if(downloadOptions.includes('score')){
+                writeQueue.push(writeStudentGrades(classObj));
+            }
+            if(downloadOptions.includes('code')){
+                // console.info(util.inspect(classObj, false, null, true /* enable colors */));
+                writeQueue.push(writeStudentCodes(classObj));
+            }
+            await Promise.all(writeQueue).catch(err=>{
+                reje(err);
             });
-            spinner.succeed(`${chalk.bold('Parse queue assembled')}`);
-            resolve(1);
+            re('ok');
+        });
+    }
+
+    async function writeStudentGrades(classObj){
+        return new Promise((re, reje) =>{
+            let {date_dueDate, arr_assignments} = sessionData;
+            let content_rows = [];
+            let headers = ['Name', 'Period', 'E-mail'];
+
+            let outPath = './out/grades/' + classObj.teacherName + '_P' + classObj.classNum + '/';
+            arr_assignments.forEach(assignmentName => {
+                // console.info('assignmentName' , assignmentName);
+                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
+                outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
+            });
+            outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
+            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
+            content_rows.push(headers);
+            classObj.students.forEach(studentObj => {
+                let studentRow = [];
+                studentRow.push('"' + studentObj.lastName + ', ' + studentObj.firstName + '"');
+                studentRow.push(classObj.classNum);
+                studentRow.push(studentObj.email);
+
+                Number.prototype.padLeft = function (base, chr) {
+                    let len = (String(base || 10).length - String(this).length) + 1;
+                    return len > 0 ? new Array(len).join(chr || '0') + this : this;
+                };
+
+                let totalAwarded = 0;
+                let totalPossible = 0;
+
+                Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                    studentRow.push(studentObj.assignments[assignmentIDs].problemName);
+                    let d = date_dueDate;
+                    studentRow.push([(d.getMonth() + 1).padLeft(),
+                            d.getDate().padLeft(),
+                            d.getFullYear()].join('/') + ' ' +
+                        [d.getHours().padLeft(),
+                            d.getMinutes().padLeft(),
+                            d.getSeconds().padLeft()].join(':'));
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
+                    studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
+                    studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
+                    studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
+                    totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
+                    totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
+                });
+
+                studentRow.push(totalAwarded);
+                studentRow.push(totalPossible);
+                studentRow.push('tbd');
+                content_rows.push(studentRow);
+            });
+            let csvContent = content_rows.map(e => e.join(",")).join("\n");
+
+            ensureDirectoryExistence(outPath);
+            fs.writeFile(outPath, csvContent, function (err) {
+                if (err) {
+                    reje('failed');
+                    return console.log(err);
+                }
+                re(classObj.teacherName + '_P' + classObj.classNum);
+            })
         })
     }
 
-    async function loadSavedSectionIDs() {
-        sessionData.sections = require('./secrets/sections.json');
-    }
+    async function writeStudentCodes(classObj){
+        return new Promise((resolve, reject)=>{
+            let {arr_assignments} = sessionData;
+            let {teacherName, classNum} = classObj;
+            let outPath = `./out/code/${teacherName}_P${classNum}/`;
+            arr_assignments.forEach(assignmentName => {
+                outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
+            });
+            outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
+            ensureDirectoryExistence(outPath);
 
-    async function parseSectionIDs() {
-        const spinner = ora({text: `${chalk.bold('Parsing section IDs...')}`}).start();
-
-        const pg = await browser.newPage();
-        let teacherID;
-        if (require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
-            teacherID = require('./secrets/teacher.json').teacherID;
-        } else {
-
-            // just in case the login step was somehow skipped??
-            // or corrupted data ig
-            const response = await prompts({
-                type: 'number',
-                name: 'teacherID',
-                message: 'Enter your teacherID (found in url after logging in)'
+            let outFile = fs.createWriteStream(__dirname + outPath.substring(1));
+            let archive = archiver('zip', {
+                zlib: { level: 9 } // Sets the compression level.
             });
 
-            teacherID = response.teacherID;
-        }
+            archive.pipe(outFile);
 
-        await pg.goto(format(links.teachersPage, teacherID), {waitUntil: 'networkidle2'});
+            classObj.students.forEach(studentObj=>{
+                let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
+                Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                    studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject=>{
+                        if(!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')){
+                            archive.append(submissionObject.code, { name: `${studentIdentifier}_${encodeURIComponent(submissionObject.submissionTime)}.txt`});
+                        }
+                    })
+                });
+            });
 
-        // make this part optional (could be manual) b/c not everyone has same naming formats
-        let sections = await pg.evaluate(() => {
-            let tmp_arr_secs = document.getElementsByClassName('teachercourse-header');
+            archive.finalize();
 
-            let sections = {};
-
-            for (let i = 0; i < tmp_arr_secs.length; i++) {
-                let container = tmp_arr_secs[i].getElementsByClassName('course-title')[0];
-
-                let name = container.innerHTML.toString().trim().substring(0, container.innerHTML.toString().trim().indexOf(' '));
-                // console.info(name);
-                let tmp_id_split = container.href.toString().split('/');
-                let teacherURL = tmp_id_split[tmp_id_split.length - 1];
-                let selectors = document.querySelectorAll('[data-teacher-course-id="' + teacherURL + '"]');
-                let teacherObj = {
-                    id: teacherURL
-                };
-                let classesObj = {};
-                for (let j = 0; j < selectors.length; j++) {
-                    let name = selectors[j].getAttribute('data-dropdown-section-name');
-                    let classNum = name.substring(1, name.indexOf(' '));
-                    classesObj[classNum + ''] = selectors[j].getAttribute('data-class-id');
-                }
-                teacherObj.classes = classesObj;
-                sections[name + ''] = teacherObj;
-            }
-
-            return sections;
-        });
-
-        // console.info(sections);
-        await writeFileAsync('./secrets/sections.json', JSON.stringify(sections));
-
-        sessionData.sections = sections;
-
-        await pg.close();
-
-        spinner.succeed(`${chalk.bold('Section IDs saved in ./secrets/sections.json')}`);
-    }
-
-
-    async function promptAssignmentOptions() {
-        return new Promise(async (resolve, reject) => {
-            const response = await prompts([
-                    {
-                        type: 'list',
-                        name: 'arr_assignments',
-                        message: `Enter assignment names (separated by ${chalk.bold(',')})`,
-                        initial: '',
-                        separator: ',',
-                        validate: val => val.toString().length > 0 ? true : 'Enter at least one assignment!'
-                    },
-                    {
-                        type: 'date',
-                        name: 'date_dueDate',
-                        message: 'When are these assignments due?',
-                        initial: new Date(2019, 1, 11),
-                        mask: 'YYYY-MM-DD HH:mm'
-                    },
-                    {
-                        type: 'multiselect',
-                        name: 'arr_classes',
-                        message: 'Pick which classes to grade',
-                        choices: buildOptions(),
-                        min: 1,
-                        hint: '- Space to select. Return to submit',
-                        instructions: false
-                    }
-                ]
-            );
-
-            sessionData['date_dueDate'] = response['date_dueDate'];
-            sessionData['arr_assignments'] = response['arr_assignments'];
-            sessionData['arr_classes'] = response['arr_classes'];
-
-            resolve('i');
-
-            function buildOptions() {
-                let options = [];
-                let {sections} = sessionData;
-                for (let key in sections) {
-                    if (sections.hasOwnProperty(key)) {
-                        options.push({
-                            title: `All ${key} Classes`, value: `${key}|0`
-                        })
-                    }
-                }
-
-                //run for-loop again to preserve ordering
-                for (let key in sections) {
-                    if (sections.hasOwnProperty(key)) {
-
-                        //'...' deconstructs the mapped array into the options array
-                        options.push(...Object.keys(sections[key].classes).map(pNum => {
-                            return {
-                                title: `P${pNum} ${key}`, value: `${key}|${pNum}`
-                            }
-                        }));
-                    }
-                }
-                return options;
-            }
+            outFile.on('close', () => resolve(`${outPath} is done`));
+            archive.on('error', (err) => reject(err));
         });
     }
 
     function doneSetupExit() {
         console.info(`That\'s alright, ${chalk.bold('npm start legacy_index.js')} to run again!`);
         process.exit();
-    }
-
-    async function continueConfirmation() {
-        return new Promise(async (resolve, reject) => {
-            const response = await prompts({
-                type: 'confirm',
-                name: 'tmp_confirm',
-                message: 'Continue to generating class assignments data?'
-            });
-
-            let {tmp_confirm} = response;
-            if (tmp_confirm) {
-                resolve(1);
-            } else {
-                reject(0);
-            }
-        })
-    }
-
-
-    async function startPuppeteer() {
-        browser = await puppeteer.launch({
-            // headless: false //TODO: remove for production
-        });
     }
 
     async function stopPuppeteer() {
@@ -803,289 +1125,84 @@ let sessionData = {rebuildCache: false},
         }
     }
 
-    function codeHSCredInvalidExit() {
-        console.info('Perhaps you changed your credentials on codehs.com?');
-        process.exit();
-    }
 
-    async function testCredentials() {
+    /* <!--- Miscellaneous Functions ---> */
+
+    function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            const spinner = ora({text: `${chalk.bold('Testing credentials...')}`}).start();
-
-            const page = await browser.newPage();
-
-            await loginCodeHS(page).then(async suc => {
-                if (!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))) {
-                    await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
-                }
-                spinner.succeed(`${chalk.bold('Login credentials valid')}`);
-            }).catch(err => {
-                spinner.fail(`${chalk.red('Login credentials invalid...')}`);
-                reject(0);
-            });
-
-            resolve(1);
-        })
-    }
-
-    async function loadCredentialsPrompts() {
-        let resizedIV = Buffer.allocUnsafe(16),
-            iv = crypto
-                .createHash("sha256")
-                .update('doc says this could be null... it can\'t')
-                .digest();
-        iv.copy(resizedIV);
-
-        let credJSON = require('./secrets/creds.json');
-        let {method} = credJSON;
-        sessionData.email = credJSON.email;
-        if (method === 'none') {
-            sessionData.password = credJSON.password || ' '
-        } else if (method === 'pwd' || method === 'pin') {
-            function cValidator(val) {
-                if (method === 'pwd') {
-                    return validator.isAlphanumeric(val + '');
-                } else if (method === 'pin') {
-                    return validator.matches(val + '', /\b\d{4}\b/);
-                } else {
-                    return false;
-                }
-            }
-
-            const response = await prompts({
-                type: 'password',
-                name: 'pwd',
-                message: `Enter your ${method === 'pwd' ? 'password' : 'pin'}`,
-                validate: val => cValidator(val) ? true : `That could not be your ${method === 'pwd' ? 'password' : 'pin'}`
-            });
-
-            let {pwd} = response;
-            let key = crypto.createHash('md5').update(pwd + '').digest();
-
-            let decrypted, decryptCipher;
+            // resolve('assume credentials are correct'); //TODO: remove on prod
+            let warningsLength;
+            let teacherID;
             try {
-                decryptCipher = crypto.createDecipheriv('aes-128-cbc', key, resizedIV);
-                decrypted = decryptCipher.update(Buffer.from(credJSON.password, 'hex'));
-                decrypted = Buffer.concat([decrypted, decryptCipher.final()]);
-            } catch {
-                console.log(`${chalk.red(`Your ${method === 'pwd' ? 'password' : 'pin'} was incorrect... exiting...`)}`);
-                process.exit();
-            }
+                await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
 
-            sessionData.password = decrypted.toString();
-        } else {
-            console.info('Unknown save method, quitting...');
-            process.exit();
-        }
+                const EMAIL_SELECTOR = '#login-email';
+                const PASSWORD_SELECTOR = '#login-password';
+                const BUTTON_SELECTOR = '#login-submit';
+
+                await pg.click(EMAIL_SELECTOR);
+                await pg.keyboard.type(sessionData['email']);
+
+                await pg.click(PASSWORD_SELECTOR);
+                await pg.keyboard.type(sessionData['password']);
+
+                await pg.click(BUTTON_SELECTOR);
+
+                await pg.waitForNavigation();
+
+                teacherID = await pg.evaluate(() => {
+                    let urlSplit = window.location.href.toString().split('/');
+                    return urlSplit[urlSplit.length - 1];
+                });
+
+                warningsLength = await pg.evaluate(() => {
+                    return document.getElementsByClassName('form-alert-red').length;
+                });
+
+                await pg.close();
+            } catch {
+                reject(-1);
+            }
+            if (warningsLength === 0) {
+                resolve(teacherID);
+            } else {
+                reject(warningsLength);
+            }
+        });
     }
 
-    function onCancel(prompt) {
+    function onPromptsCancel(prompt) {
         console.log(`${chalk.red('Canceling session')}`);
         process.exit();
     }
 
-    async function setCredentialsPrompts() {
-        sessionData = await prompts([
-                {
-                    type: 'text',
-                    name: 'email',
-                    message: 'What is your CodeHS email?',
-                    validate: value => validator.isEmail(value + '') ? true : 'Enter a valid email'
-                },
-                {
-                    type: 'password',
-                    name: 'password',
-                    message: 'What is your CodeHS password?',
-                    validate: value => validator.isAlphanumeric(value + '')
-                }
-            ], {onCancel}
-        );
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    async function promptSavePwdOptions() {
-        let resizedIV = Buffer.allocUnsafe(16),
-            iv = crypto
-                .createHash("sha256")
-                .update('doc says this could be null... it can\'t')
-                .digest();
-        iv.copy(resizedIV);
+    async function writeFileAsync(path, content) {
+        return new Promise((resolve, reject) => {
+            ensureDirectoryExistence(path);
+            fs.writeFile(path, content, function (err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve('ok');
+                }
+            })
+        });
+    }
 
-        let saveData = await prompts([
-            {
-                type: 'confirm',
-                name: 'save',
-                message: 'Save credentials?'
-            },
-            {
-                type: prev => prev ? 'select' : null,
-                name: 'method',
-                message: 'Security level:',
-                choices: [
-                    {
-                        title: 'Pin', description: '4 Digits Code', value: 'pin',
-                    },
-                    {
-                        title: 'Password', description: 'Alphanumerical (1+)', value: 'pwd',
-                    },
-                    {
-                        title: 'None', description: 'No Security', value: 'none',
-                    },
-                    {
-                        title: 'Cancel', description: 'Nvm, Don\'t Save!', value: 'cancel'
-                    }
-                ],
-                hint: '- up/down to navigate. return to submit',
-                initial: 0
-            },
-            {
-                type: prev => prev === 'pin' ? 'password' : null,
-                name: 'pin',
-                message: 'Enter a 4-digit pin',
-                validate: val => validator.matches(val + '', /\b\d{4}\b/)
-            },
-            {
-                type: prev => prev === 'pwd' ? 'password' : null,
-                name: 'pwd',
-                message: 'Enter a password',
-                validate: val => validator.isAlphanumeric(val + '')
-            }
-        ], {onCancel});
-
-        let {save} = saveData;
-
-        if (save) {
-            let {method} = saveData;
-
-            let {email} = sessionData;
-            let {password} = sessionData;
-
-            if (method === 'none') {
-                // no security or hash, move on !
-            } else if (method === 'pin') {
-                let {pin} = saveData;
-                let key = crypto.createHash('md5').update(pin + '').digest();
-                await prompts({
-                    type: 'password',
-                    name: 'tmp_confirm',
-                    message: 'Confirm your pin',
-                    validate: val => val === pin ? true : 'That\'s not your pin!'
-                }, {onCancel});
-                let cryptoKey = crypto.createCipheriv('aes-128-cbc', key, resizedIV);
-                password = cryptoKey.update(password, 'utf8', 'hex');
-                password += cryptoKey.final('hex');
-            } else if (method === 'pwd') {
-                let {pwd} = saveData;
-                let key = crypto.createHash('md5').update(pwd + '').digest();
-                await prompts({
-                    type: 'password',
-                    name: 'tmp_confirm',
-                    message: 'Confirm your password',
-                    validate: val => val === pwd ? true : 'That\'s not your password!'
-                }, {onCancel});
-                let cryptoKey = crypto.createCipheriv('aes-128-cbc', key, resizedIV);
-                password = cryptoKey.update(password, 'utf8', 'hex');
-                password += cryptoKey.final('hex');
-            } else {
-                // cancel
-                process.exit();
-            }
-
-            //finally, write finalized email/password to file
-
-            await writeFileAsync('secrets/creds.json', JSON.stringify({
-                method: method,
-                email: email,
-                password: password
-            }))
+    function ensureDirectoryExistence(filePath) {
+        let dirname = path.dirname(filePath);
+        if (fs.existsSync(dirname)) {
+            return true;
         }
+        ensureDirectoryExistence(dirname);
+        fs.mkdirSync(dirname);
     }
 })();
 
-function loginCodeHS(pg) {
-    return new Promise(async (resolve, reject) => {
-        // resolve('assume credentials are correct'); //TODO: remove on prod
-        let warningsLength;
-        let teacherID;
-        try {
-            await pg.goto('https://codehs.com/login', {waitUntil: 'networkidle2'});
-
-            const EMAIL_SELECTOR = '#login-email';
-            const PASSWORD_SELECTOR = '#login-password';
-            const BUTTON_SELECTOR = '#login-submit';
-
-            await pg.click(EMAIL_SELECTOR);
-            await pg.keyboard.type(sessionData['email']);
-
-            await pg.click(PASSWORD_SELECTOR);
-            await pg.keyboard.type(sessionData['password']);
-
-            await pg.click(BUTTON_SELECTOR);
-
-            await pg.waitForNavigation();
-
-            teacherID = await pg.evaluate(() => {
-                let urlSplit = window.location.href.toString().split('/');
-                return urlSplit[urlSplit.length - 1];
-            });
-
-            warningsLength = await pg.evaluate(() => {
-                return document.getElementsByClassName('form-alert-red').length;
-            });
-
-            await pg.close();
-        } catch {
-            reject(-1);
-        }
-        if (warningsLength === 0) {
-            resolve(teacherID);
-        } else {
-            reject(warningsLength);
-        }
-    });
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function writeFileAsync(path, content) {
-    return new Promise((resolve, reject) => {
-        ensureDirectoryExistence(path);
-        fs.writeFile(path, content, function (err) {
-            if (err) {
-                reject(err);
-            } else {
-                resolve('ok');
-            }
-        })
-    });
-}
-
-function ensureDirectoryExistence(filePath) {
-    let dirname = path.dirname(filePath);
-    if (fs.existsSync(dirname)) {
-        return true;
-    }
-    ensureDirectoryExistence(dirname);
-    fs.mkdirSync(dirname);
-}
-
-function savedCredsExist() {
-    try {
-        return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
-    } catch {
-        return false;
-    }
-}
-
-function savedSectionsIDExist() {
-    try {
-        return fs.existsSync(path.join(__dirname, '/secrets/sections.json'));
-    } catch {
-        return false;
-    }
-}
-
-String.prototype.replaceAll = function(search, replacement){
+String.prototype.replaceAll = function (search, replacement) {
     return this.split(search).join(replacement);
 };

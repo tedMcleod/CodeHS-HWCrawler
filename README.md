@@ -32,5 +32,8 @@ Delete the ./cached directory as problem IDs may have changed
 ##### Why are there '--' in each of the output fields?
 The assignment may have been removed and could not be found, no real solutions as of right now.
 
+##### ERROR: The process with PID \# (child process of PID \#) could not be terminated.
+Could be ignored, may cause excessive memory usage?
+
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
