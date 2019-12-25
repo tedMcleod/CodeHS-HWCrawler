@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const prompts = require('prompts'),
     validator = require('validator'),
     ora = require('ora'),
@@ -22,7 +24,8 @@ try {
 let sessionData = {rebuildCache: false},
     arr_objs_classes = [];
 
-let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateObjRN.getUTCDate(), yearRN = dateObjRN.getUTCFullYear(),
+let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateObjRN.getUTCDate(),
+    yearRN = dateObjRN.getUTCFullYear(),
     dateStrRN = yearRN + "/" + monthRN + "/" + dayRN;
 
 /*
@@ -86,7 +89,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
     function savedCredsExist() {
         try {
             return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
-        } catch {
+        } catch (err) {
             return false;
         }
     }
@@ -130,7 +133,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                 decryptCipher = crypto.createDecipheriv('aes-128-cbc', key, resizedIV);
                 decrypted = decryptCipher.update(Buffer.from(credJSON.password, 'hex'));
                 decrypted = Buffer.concat([decrypted, decryptCipher.final()]);
-            } catch {
+            } catch (incorrect) {
                 console.log(`${chalk.red(`Your ${method === 'pwd' ? 'password' : 'pin'} was incorrect... exiting...`)}`);
                 process.exit();
             }
@@ -306,7 +309,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
     function savedSectionsIDExist() {
         try {
             return fs.existsSync(path.join(__dirname, '/secrets/sections.json'));
-        } catch {
+        } catch (err) {
             return false;
         }
     }
@@ -491,14 +494,14 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     /* <!--- File Writing Configuration Functions ---> */
 
-    async function promptSaveDataOptions(){
+    async function promptSaveDataOptions() {
         const response = await prompts({
             type: 'multiselect',
             name: 'chosenOptions',
             message: 'Download what?',
             choices: [
-                { title: 'Student\'s score', value: 'score', selected: true },
-                { title: 'Student\'s code', value: 'code', selected: true}
+                {title: 'Student\'s score', value: 'score', selected: true},
+                {title: 'Student\'s code', value: 'code', selected: true}
             ],
             min: 1,
             hint: '- Space to select. Return to submit',
@@ -792,7 +795,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                         let startedText;
                                         try {
                                             startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
-                                        } catch {
+                                        } catch (err) {
                                             studentObject.assignments['' + key] = {
                                                 problemName: problemName.includes('201') ? 'Problem Removed' : problemName,
                                                 firstTryDate: '--',
@@ -909,7 +912,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
                                                 date_submissionDate.setFullYear(2020);
-                                                if(date_submissionDate > new Date()){
+                                                if (date_submissionDate > new Date()) {
                                                     date_submissionDate.setFullYear(2019)
                                                 }
                                                 //attach date 'hours' modifier
@@ -942,9 +945,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                                 });
 
                                                 function removeFormattingCharacters(str) {
-                                                    return str.replace(/[\n\r\t]/g,' ').replace(/ {2,}/g, '');
+                                                    return str.replace(/[\n\r\t]/g, ' ').replace(/ {2,}/g, '');
                                                 }
                                             }
+                                        } else {
+                                            // not submitted
+
                                         }
 
                                         studentObject.assignments['' + key] = {
@@ -993,22 +999,22 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
         return new Promise(async (re, reje) => {
             let {downloadOptions} = sessionData;
             let writeQueue = [];
-            if(downloadOptions.includes('score')){
+            if (downloadOptions.includes('score')) {
                 writeQueue.push(writeStudentGrades(classObj));
             }
-            if(downloadOptions.includes('code')){
+            if (downloadOptions.includes('code')) {
                 // console.info(util.inspect(classObj, false, null, true /* enable colors */));
                 writeQueue.push(writeStudentCodes(classObj));
             }
-            await Promise.all(writeQueue).catch(err=>{
+            await Promise.all(writeQueue).catch(err => {
                 reje(err);
             });
             re('ok');
         });
     }
 
-    async function writeStudentGrades(classObj){
-        return new Promise((re, reje) =>{
+    async function writeStudentGrades(classObj) {
+        return new Promise((re, reje) => {
             let {date_dueDate, arr_assignments} = sessionData;
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
@@ -1074,8 +1080,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
         })
     }
 
-    async function writeStudentCodes(classObj){
-        return new Promise((resolve, reject)=>{
+    async function writeStudentCodes(classObj) {
+        return new Promise((resolve, reject) => {
             let {arr_assignments} = sessionData;
             let {teacherName, classNum} = classObj;
             let outPath = `./out/code/${teacherName}_P${classNum}/`;
@@ -1087,17 +1093,17 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
             let outFile = fs.createWriteStream(__dirname + outPath.substring(1));
             let archive = archiver('zip', {
-                zlib: { level: 9 } // Sets the compression level.
+                zlib: {level: 9} // Sets the compression level.
             });
 
             archive.pipe(outFile);
 
-            classObj.students.forEach(studentObj=>{
+            classObj.students.forEach(studentObj => {
                 let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
-                    studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject=>{
-                        if(!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')){
-                            archive.append(submissionObject.code, { name: `${studentIdentifier}_${encodeURIComponent(submissionObject.submissionTime)}.txt`});
+                    studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
+                        if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
+                            archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.submissionTime)}.txt`});
                         }
                     })
                 });
@@ -1160,7 +1166,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                 });
 
                 await pg.close();
-            } catch {
+            } catch (e) {
                 reject(-1);
             }
             if (warningsLength === 0) {

@@ -1,6 +1,6 @@
 {
-  "name": "code_hs_crawler",
-  "version": "1.0.3",
+  "name": "codehs_grades",
+  "version": "1.0.1",
   "description": "",
   "main": "index.js",
   "dependencies": {
@@ -21,6 +21,7 @@
     "start": "node index.js",
     "legacy": "node legacy_index.js"
   },
+  "bin": "./index.js",
   "author": "JP",
   "license": "ISC"
 }
