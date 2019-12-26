@@ -792,7 +792,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     }
 
                     //limits to one student for testing
-                    arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
@@ -918,7 +918,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         // console.info(currentGrade);
                                         let pointsAwarded = '' + currentGrade['score'];
                                         if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
-                                        let maxPoints = currentGrade['out_of'];
+                                        let maxPoints = currentGrade['out_of'] + '';
 
                                         // get time worked
                                         let selectionField = document.getElementById('assignment-submission-select');
@@ -948,14 +948,18 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             }
                                         }
 
-                                        //holds all of a student's code
-                                        let arr_obj_studentCodes = [];
-
+                                        //get some user information from assignment document
                                         let temp_itemUserURL = document.getElementById('print-code').href;
                                         let temp_split = temp_itemUserURL.split('/');
                                         let item = temp_split[5];
                                         let user = temp_split[6];
 
+                                        //Time spent on assignment
+                                        let runningTotalSeconds = 0;
+                                        let beforeDue = 0;
+
+                                        //holds all of a student's code
+                                        let arr_obj_studentCodes = [];
                                         await getSnapshotsAsync().then(docText => {
                                             function htmlToElement(html) {
                                                 let div = document.createElement('div');
@@ -964,16 +968,51 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 return div;
                                             }
                                             let editContainers = htmlToElement(removeFormattingCharacters(docText)).getElementsByClassName('snapshot-version');
+                                            let previousDate;
                                             for (let i = 0; i < editContainers.length; i++) {
                                                 let dateStr = editContainers[i].getElementsByClassName('date')[0].innerHTML;
                                                 let timeStr = editContainers[i].getElementsByClassName('time')[0].innerHTML;
                                                 let date_editDate = new Date(dateStr + ' ' + timeStr);
+
                                                 let rawCodeObj = editContainers[i].getElementsByTagName('script')[0].innerText;
                                                 let code = JSON.parse(rawCodeObj)['default.js'];
                                                 arr_obj_studentCodes.push({
                                                     editTime: date_editDate.toISOString(),
                                                     code: code
-                                                })
+                                                });
+                                                if(date_editDate > date_dueDate && beforeDue === 0){
+                                                    beforeDue = runningTotalSeconds;
+                                                }
+                                                if(!previousDate){
+                                                    previousDate = date_editDate;
+                                                    runningTotalSeconds = 60;
+                                                } else{
+                                                    let elapsedTime = (previousDate.getTime() - date_editDate.getTime())/1000;
+                                                    if(elapsedTime > 30 * 60){
+                                                        runningTotalSeconds += 3 * 60;
+                                                    }else if(elapsedTime > 10 * 60){
+                                                        runningTotalSeconds += 2 * 60;
+                                                    }else{
+                                                        runningTotalSeconds += Math.floor(elapsedTime/2);
+                                                    }
+                                                }
+                                            }
+
+                                            if(beforeDue === 0){
+                                                beforeDue = runningTotalSeconds;
+                                            }
+
+                                            if(!problemStatus.toLowerCase().includes('final')){
+                                                //not finalized grade
+                                                if(runningTotalSeconds > 60 * 60){
+                                                    pointsAwarded = maxPoints;
+                                                }else if(runningTotalSeconds > 30 * 60){
+                                                    pointsAwarded = ((+maxPoints)/2) + '';
+                                                }else if(runningTotalSeconds > 15 * 60){
+                                                    pointsAwarded = ((+maxPoints)/4) + '';
+                                                }else{
+                                                    pointsAwarded = '0';
+                                                }
                                             }
                                         }).catch(err => {
                                             console.error(err);
@@ -1010,8 +1049,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             problemName: problemName,
                                             firstTryDate: firstTryDate,
                                             firstTryTime: firstTryTime,
-                                            timeWorkedBeforeDue: '',
-                                            timeWorkedTotal: '',
+                                            timeWorkedBeforeDue: beforeDue/60,
+                                            timeWorkedTotal: runningTotalSeconds/60,
                                             onTimeStatus: submitted ? (late ? 'late' : 'on time') : 'not submitted',
                                             problemStatus: problemStatus,
                                             pointsAwarded: pointsAwarded,
@@ -1100,6 +1139,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 let totalAwarded = 0;
                 let totalPossible = 0;
 
+                let overAllOnTime = true;
+                let started = false;
+
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     studentRow.push(studentObj.assignments[assignmentIDs].problemName);
                     let d = date_dueDate;
@@ -1111,9 +1153,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                             d.getSeconds().padLeft()].join(':'));
                     studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
                     studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
-                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue);
-                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal);
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue.toString().minsToHHMMSS());
+                    studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
+                    if(!studentObj.assignments[assignmentIDs].onTimeStatus.includes('on time')){
+                        overAllOnTime = false;
+                    }
+                    if(!studentObj.assignments[assignmentIDs].onTimeStatus.includes('not submitted')){
+                        started = true;
+                    }
                     studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
                     studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
                     totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
@@ -1122,7 +1170,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 studentRow.push(totalAwarded);
                 studentRow.push(totalPossible);
-                studentRow.push('tbd');
+                studentRow.push(overAllOnTime?'on time': (started? 'late' : 'not started'));
                 content_rows.push(studentRow);
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
@@ -1200,7 +1248,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            resolve('assume credentials are correct'); //TODO: remove on prod
+            // resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {
@@ -1275,4 +1323,17 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
 String.prototype.replaceAll = function (search, replacement) {
     return this.split(search).join(replacement);
+};
+
+String.prototype.minsToHHMMSS = function () {
+    let mins_num = parseFloat(this, 10); // don't forget the second param
+    let hours = Math.floor(mins_num / 60);
+    let minutes = Math.floor((mins_num - ((hours * 3600)) / 60));
+    let seconds = Math.floor((mins_num * 60) - (hours * 3600) - (minutes * 60));
+
+    // Appends 0 when unit is less than 10
+    if (hours   < 10) {hours   = "0"+hours;}
+    if (minutes < 10) {minutes = "0"+minutes;}
+    if (seconds < 10) {seconds = "0"+seconds;}
+    return hours+':'+minutes+':'+seconds;
 };

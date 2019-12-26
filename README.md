@@ -49,9 +49,10 @@ Use points given by grader
 | -------------:|:-----------------:| :---: |
 |  30+ minutes | 3 minutes   | Could've went on break |
 |      10-30 minutes |      2 minutes      | Could've been stuck on a part |
-|0-10 minutes| 0.5 * elapsed| Not all time is spent on coding|
+|0-10 minutes| 0.5 x elapsed| Not all time is spent on coding|
 \*Time elapsed from last auto-save in history
-> Note: Settings can be changed in `config.js` (**NOT YET**)
+> Note: Settings can be changed in `config.js` (**NOT YET**)  
+> Note: All numbers are floored  
 
 ### Output file paths
 *Will have more options soon*  
