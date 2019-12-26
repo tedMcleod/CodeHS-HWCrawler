@@ -159,9 +159,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             }).catch(err => {
                 spinner.fail(`${chalk.red('Login credentials invalid...')}`);
                 reject(0);
+            }).finally(() => {
+                resolve(1);
             });
-
-            resolve(1);
         })
     }
 
@@ -687,10 +687,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                     }
                 }
 
-                function sleep(ms) {
-                    return new Promise(resolve => setTimeout(resolve, ms));
-                }
-
                 let arr_obj_students = [];
                 let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
 
@@ -767,6 +763,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                         if (parts.length === 2) return parts.pop().split(";").shift();
                         return '';
                     }
+
                     let csrfToken = getCookie('csrftoken');
 
                     //add String.format utility
@@ -948,25 +945,58 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                         let user = temp_split[6];
 
                                         await getSnapshotsAsync().then(docText => {
+                                            let parseXml;
 
+                                            if (window.DOMParser) {
+                                                parseXml = function (xmlStr) {
+                                                    return (new window.DOMParser()).parseFromString(xmlStr, "text/xml");
+                                                };
+                                            } else if (typeof window.ActiveXObject != "undefined" && new window.ActiveXObject("Microsoft.XMLDOM")) {
+                                                parseXml = function (xmlStr) {
+                                                    let xmlDoc = new window.ActiveXObject("Microsoft.XMLDOM");
+                                                    xmlDoc.async = "false";
+                                                    xmlDoc.loadXML(xmlStr);
+                                                    return xmlDoc;
+                                                };
+                                            } else {
+                                                parseXml = function () {
+                                                    return null;
+                                                }
+                                            }
+                                            let xmlStr = `<!DOCTYPE html><html><body>${removeFormattingCharacters(docText)}</body></html>`
+                                            let xmlDoc = parseXml(xmlStr);
+                                            if (xmlDoc) {
+                                                console.info(xmlStr);
+                                                console.info(xmlDoc);
+                                            } else {
+                                                console.info(removeFormattingCharacters(docText));
+                                            }
                                         }).catch(err => {
+                                            console.error(err);
                                             //ignore
                                         });
-                                        function getSnapshotsAsync(){
-                                            return new Promise(function(resolve, reject){
+
+                                        await sleep(500000);
+
+                                        function removeFormattingCharacters(str) {
+                                            return str.replace(/[\n\r\t]/g, ' ').replace(/ {2,}/g, '');
+                                        }
+
+                                        function getSnapshotsAsync() {
+                                            return new Promise(function (resolve2, reject2) {
                                                 let xmlhr = new XMLHttpRequest();
                                                 xmlhr.onreadystatechange = function () {
                                                     if (this.readyState === 4) {
-                                                        if(this.status === 200){
-                                                            resolve(this.response.text);
-                                                        }else{
-                                                            reject(this.status);
+                                                        if (this.status === 200) {
+                                                            resolve2(JSON.parse(this.responseText).text);
+                                                        } else {
+                                                            reject2(this.status);
                                                         }
                                                     }
                                                 };
                                                 xmlhr.open("POST", "https://codehs.com/editor/ajax/get_snapshots", true);
                                                 xmlhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-                                                xmlhr.setRequestHeader('x-requested-with','XMLHttpRequest');
+                                                xmlhr.setRequestHeader('x-requested-with', 'XMLHttpRequest');
                                                 xmlhr.setRequestHeader('x-csrftoken', csrfToken);
                                                 xmlhr.send(`item=${item}&user=${user}&course=0&method=get_snapshots`);
                                             });
@@ -986,7 +1016,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                         };
 
                                         function sleep(ms) {
-                                            return new Promise(resolve => setTimeout(resolve, ms));
+                                            return new Promise(resolution => setTimeout(resolution, ms));
                                         }
 
                                         res(1);
