@@ -11,7 +11,8 @@ const prompts = require('prompts'),
     links = require('./templates/links'),
     pLimit = require('p-limit'),
     netLimit = pLimit(1),
-    archiver = require('archiver');
+    archiver = require('archiver'),
+    terminalLink = require('terminal-link');
 
 let crypto, browser;
 try {
@@ -66,6 +67,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
     await parseWriteEachClassObj();
 
     await stopPuppeteer();
+
+    printCompletionMessage();
+
 
     /*
           _    _ ______ _      _____  ______ _____   _____
@@ -153,7 +157,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
             await loginCodeHS(page).then(async suc => {
                 if (!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))) {
-                    await writeFileAsync('secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                    await writeFileAsync(__dirname + '/secrets/teacher.json', JSON.stringify({teacherID: suc}));
                 }
                 spinner.succeed(`${chalk.bold('Login credentials valid')}`);
             }).catch(err => {
@@ -278,7 +282,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
             //finally, write finalized email/password to file
 
-            await writeFileAsync('secrets/creds.json', JSON.stringify({
+            await writeFileAsync(__dirname + '/secrets/creds.json', JSON.stringify({
                 method: method,
                 email: email,
                 password: password
@@ -372,7 +376,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
         });
 
         // console.info(sections);
-        await writeFileAsync('./secrets/sections.json', JSON.stringify(sections));
+        await writeFileAsync(__dirname + '/secrets/sections.json', JSON.stringify(sections));
 
         sessionData.sections = sections;
 
@@ -525,7 +529,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             await parseClassPages(classObj, arr_objs_classes, browser, spinner);
             spinner.text = `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Writing files...`)}`;
             await writeClass(classObj);
-            spinner.succeed(`${chalk.bold(`./out/~/${classObj.teacherName + '_P' + classObj.classNum} has been completed`)}`);
+            spinner.succeed(`${chalk.bold(`${__dirname}/out/~/${classObj.teacherName + '_P' + classObj.classNum}`)}`);
             a(Date.now());
         })
     }
@@ -541,7 +545,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             await page.setExtraHTTPHeaders({
                 'accept-language': 'en-US,en;q=0.8'
             });
-            let cached_modulePath = './cached/' + obj.sectionId + '/' + obj.classId;
+            let cached_modulePath = __dirname + '/cached/' + obj.sectionId + '/' + obj.classId;
             let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
 
             async function pathExists(path) {
@@ -738,11 +742,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
 
-            await pathExists('./node_modules/bottleneck/es5.js').then(async suc => {
-                await page.addScriptTag({path: './node_modules/bottleneck/es5.js'});
+            await pathExists(__dirname + '/node_modules/bottleneck/es5.js').then(async suc => {
+                await page.addScriptTag({path: __dirname + '/node_modules/bottleneck/es5.js'});
             }).catch(async err => {
-                await pathExists('../../node_modules/bottleneck/es5.js').then(async suc => {
-                    await page.addScriptTag({path: '../../node_modules/bottleneck/es5.js'});
+                await pathExists(__dirname+'/../../node_modules/bottleneck/es5.js').then(async suc => {
+                    await page.addScriptTag({path: __dirname +'/../../node_modules/bottleneck/es5.js'});
                 }).catch(err => {
                     console.info(chalk.bold.red('Could not find the \'bottleneck\' module'));
                     process.exit();
@@ -1049,7 +1053,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
 
-            let outPath = './out/grades/' + classObj.teacherName + '_P' + classObj.classNum + '/';
+            let outPath = __dirname + '/out/grades/' + classObj.teacherName + '_P' + classObj.classNum + '/';
             arr_assignments.forEach(assignmentName => {
                 // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
@@ -1114,7 +1118,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
         return new Promise((resolve, reject) => {
             let {arr_assignments} = sessionData;
             let {teacherName, classNum} = classObj;
-            let outPath = `./out/code/${teacherName}_P${classNum}/`;
+            let outPath = `${__dirname}/out/code/${teacherName}_P${classNum}/`;
             arr_assignments.forEach(assignmentName => {
                 outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
             });
@@ -1161,6 +1165,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
         }
     }
 
+    function printCompletionMessage(){
+        console.info(`${chalk.bold('Parsing has been completed.')}`);
+        console.info(`${chalk.bold(`Any suggestions? Open an issue in this ${terminalLink('repo', 'https://github.com/e-zhang09/CodeHS-HWCrawler')}`)}`);
+        process.exit();
+    }
 
     /* <!--- Miscellaneous Functions ---> */
 
