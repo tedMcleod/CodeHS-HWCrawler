@@ -25,9 +25,9 @@ try {
 let sessionData = {rebuildCache: false},
     arr_objs_classes = [];
 
-let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateObjRN.getUTCDate(),
-    yearRN = dateObjRN.getUTCFullYear(),
-    dateStrRN = yearRN + "/" + monthRN + "/" + dayRN;
+let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjRN.getDate(), hourRN = dateObjRN.getHours(), minuteRN = dateObjRN.getMinutes(),
+    yearRN = dateObjRN.getFullYear(),
+    dateStrRN = yearRN + "/" + monthRN + "/" + dayRN + "/" + (hourRN <= 12? hourRN + "AM": hourRN - 12 + "PM") + "/" + minuteRN;
 
 /*
              _     _ _            _        _   _                   _     _                   _          ____ _        _             __ __                     __
@@ -83,7 +83,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     async function startPuppeteer() {
         browser = await puppeteer.launch({
-            headless: false //TODO: remove for production
+            // headless: false //TODO: remove for production
         });
     }
 
@@ -565,7 +565,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             if (boolean_useCache) {
                 await pathExists(cached_modulePath + '/index.html').then(success => {
                     //use cache
-                    url_sectionAllModule = `file:${path.join(__dirname, cached_modulePath + '/index.html')}`;
+                    url_sectionAllModule = `file:${cached_modulePath}/index.html`;
                 }).catch(err => {
                     spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
                     boolean_useCache = false;
@@ -583,6 +583,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
                 if (errObj.name !== 'TimeoutError') {
                     console.info('yikes');
+                    console.info(errObj);
                 }
             });
             await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
@@ -753,6 +754,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                 })
             });
 
+            page.on('console', consoleObj => {
+                if(consoleObj.text().includes('[ainfo]')){
+                    console.log(consoleObj.text().replace('[ainfo]', ''))
+                }
+            });
+
             obj.students = await page.evaluate(
                 async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, downloadCode) => {
                     //import bottleneck from script tag
@@ -785,7 +792,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                     }
 
                     //limits to one student for testing
-                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                    arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
@@ -950,7 +957,24 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                         let user = temp_split[6];
 
                                         await getSnapshotsAsync().then(docText => {
-
+                                            function htmlToElement(html) {
+                                                let div = document.createElement('div');
+                                                html = html.trim(); // Never return a text node of whitespace as the result
+                                                div.innerHTML = html;
+                                                return div;
+                                            }
+                                            let editContainers = htmlToElement(removeFormattingCharacters(docText)).getElementsByClassName('snapshot-version');
+                                            for (let i = 0; i < editContainers.length; i++) {
+                                                let dateStr = editContainers[i].getElementsByClassName('date')[0].innerHTML;
+                                                let timeStr = editContainers[i].getElementsByClassName('time')[0].innerHTML;
+                                                let date_editDate = new Date(dateStr + ' ' + timeStr);
+                                                let rawCodeObj = editContainers[i].getElementsByTagName('script')[0].innerText;
+                                                let code = JSON.parse(rawCodeObj)['default.js'];
+                                                arr_obj_studentCodes.push({
+                                                    editTime: date_editDate.toISOString(),
+                                                    code: code
+                                                })
+                                            }
                                         }).catch(err => {
                                             console.error(err);
                                             //ignore
@@ -1125,7 +1149,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
             ensureDirectoryExistence(outPath);
 
-            let outFile = fs.createWriteStream(__dirname + outPath.substring(1));
+            let outFile = fs.createWriteStream(outPath);
             let archive = archiver('zip', {
                 zlib: {level: 9} // Sets the compression level.
             });
@@ -1137,7 +1161,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
                         if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
-                            archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.submissionTime)}.txt`});
+                            archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.txt`});
                         }
                     })
                 });
@@ -1166,6 +1190,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
     }
 
     function printCompletionMessage(){
+        console.log();
         console.info(`${chalk.bold('Parsing has been completed.')}`);
         console.info(`${chalk.bold(`Any suggestions? Open an issue in this ${terminalLink('repo', 'https://github.com/e-zhang09/CodeHS-HWCrawler')}`)}`);
         process.exit();
@@ -1175,7 +1200,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            // resolve('assume credentials are correct'); //TODO: remove on prod
+            resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {
