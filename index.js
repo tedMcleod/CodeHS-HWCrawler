@@ -79,7 +79,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     async function startPuppeteer() {
         browser = await puppeteer.launch({
-            // headless: false //TODO: remove for production
+            headless: false //TODO: remove for production
         });
     }
 
@@ -531,7 +531,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
         return new Promise(async (resolve, reject) => {
-            let {date_dueDate, arr_assignments} = sessionData;
+            // TOP OF FUNCTION
+            let {date_dueDate, arr_assignments, downloadOptions} = sessionData;
             const page = await browser.newPage();
             const headlessUserAgent = await page.evaluate(() => navigator.userAgent);
             const chromeUserAgent = headlessUserAgent.replace('HeadlessChrome', 'Chrome');
@@ -752,13 +753,21 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             });
 
             obj.students = await page.evaluate(
-                async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students) => {
+                async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, downloadCode) => {
                     //import bottleneck from script tag
                     let Bottleneck = window.Bottleneck;
                     const limiter = new Bottleneck({
                         maxConcurrent: 10,
                         minTime: 200
                     });
+
+                    function getCookie(name) {
+                        let value = "; " + document.cookie;
+                        let parts = value.split("; " + name + "=");
+                        if (parts.length === 2) return parts.pop().split(";").shift();
+                        return '';
+                    }
+                    let csrfToken = getCookie('csrftoken');
 
                     //add String.format utility
                     if (!String.format) {
@@ -774,7 +783,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                     }
 
                     //limits to one student for testing
-                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                    arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
@@ -905,9 +914,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                         // get time worked
                                         let selectionField = document.getElementById('assignment-submission-select');
 
-                                        //holds all of a student's code
-                                        let arr_obj_studentCodes = [];
+                                        let submitted = false;
+                                        let late = false;
                                         if (selectionField != null) {
+                                            submitted = true;
                                             let submissions = selectionField.getElementsByTagName('option');
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
@@ -923,34 +933,43 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                                 if (submissions[i].innerText.includes('p.m.')) {
                                                     date_submissionDate.addHours(12);
                                                 }
-                                                let value = submissions[i].getAttribute('value');
-                                                let container_timeSpent = document.getElementById('time-spent-submission-message-' + value);
-                                                let timeSpent = container_timeSpent.getElementsByTagName('span')[0].innerText;
-                                                //TODO Figure out grading based on timeSpent
-
-                                                //get student's code
-                                                let container_codeSnapshot = document.getElementById('snapshot-submission-' + value);
-                                                let code = '--- --- --- NO CODE AVAILABLE --- --- ---';
-
-                                                let rawCode;
-                                                if (container_codeSnapshot) {
-                                                    rawCode = JSON.parse(container_codeSnapshot.innerText)['default.js'];
-                                                    code = removeFormattingCharacters(rawCode);
-                                                }
-
-                                                arr_obj_studentCodes.push({
-                                                    submissionTime: date_submissionDate.toUTCString(),
-                                                    code: code,
-                                                    ID: 'snapshot-submission-' + value
-                                                });
-
-                                                function removeFormattingCharacters(str) {
-                                                    return str.replace(/[\n\r\t]/g, ' ').replace(/ {2,}/g, '');
+                                                if (date_submissionDate > date_dueDate) {
+                                                    late = true;
                                                 }
                                             }
-                                        } else {
-                                            // not submitted
+                                        }
 
+                                        //holds all of a student's code
+                                        let arr_obj_studentCodes = [];
+
+                                        let temp_itemUserURL = document.getElementById('print-code').href;
+                                        let temp_split = temp_itemUserURL.split('/');
+                                        let item = temp_split[5];
+                                        let user = temp_split[6];
+
+                                        await getSnapshotsAsync().then(docText => {
+
+                                        }).catch(err => {
+                                            //ignore
+                                        });
+                                        function getSnapshotsAsync(){
+                                            return new Promise(function(resolve, reject){
+                                                let xmlhr = new XMLHttpRequest();
+                                                xmlhr.onreadystatechange = function () {
+                                                    if (this.readyState === 4) {
+                                                        if(this.status === 200){
+                                                            resolve(this.response.text);
+                                                        }else{
+                                                            reject(this.status);
+                                                        }
+                                                    }
+                                                };
+                                                xmlhr.open("POST", "https://codehs.com/editor/ajax/get_snapshots", true);
+                                                xmlhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+                                                xmlhr.setRequestHeader('x-requested-with','XMLHttpRequest');
+                                                xmlhr.setRequestHeader('x-csrftoken', csrfToken);
+                                                xmlhr.send(`item=${item}&user=${user}&course=0&method=get_snapshots`);
+                                            });
                                         }
 
                                         studentObject.assignments['' + key] = {
@@ -959,12 +978,16 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                             firstTryTime: firstTryTime,
                                             timeWorkedBeforeDue: '',
                                             timeWorkedTotal: '',
-                                            onTimeStatus: '',
+                                            onTimeStatus: submitted ? (late ? 'late' : 'on time') : 'not submitted',
                                             problemStatus: problemStatus,
                                             pointsAwarded: pointsAwarded,
                                             maxPoints: maxPoints,
                                             studentCodes: arr_obj_studentCodes
                                         };
+
+                                        function sleep(ms) {
+                                            return new Promise(resolve => setTimeout(resolve, ms));
+                                        }
 
                                         res(1);
                                     };
@@ -984,7 +1007,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                     }));
 
                     return arr_obj_students;
-                }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students
+                }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students, downloadOptions.includes('code')
             );
 
             // await sleep(100000);
@@ -992,6 +1015,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
             await page.close();
             // console.info('done obj', obj);
             resolve('done at ' + Date.now());
+            //BOTTOM OF FUNCTION
         })
     }
 
@@ -1136,7 +1160,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            // resolve('assume credentials are correct'); //TODO: remove on prod
+            resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {

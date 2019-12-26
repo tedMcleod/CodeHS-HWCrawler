@@ -92,7 +92,7 @@ start().then();
 
 async function start() {
     const browser = await puppeteer.launch({
-        // headless: false //TODO: remove for production
+        headless: false //TODO: remove for production
     });
     const page = await browser.newPage();
     await loginCodeHS(page);
@@ -439,7 +439,7 @@ async function parseClassPages(obj, arr_objs_classes, browser) {
                 }
 
                 //limits to one student for testing
-                // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                 console.info('fetching student pages', arr_obj_students);
 

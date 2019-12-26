@@ -35,5 +35,8 @@ The assignment may have been removed and could not be found, no real solutions a
 ##### ERROR: The process with PID \# (child process of PID \#) could not be terminated.
 Could be ignored, may cause excessive memory usage?
 
+##### Puppeteer sandbox issues
+This tool does not support linux systems yet (mac may not work either)
+
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
