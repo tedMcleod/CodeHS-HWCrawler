@@ -43,10 +43,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     if (savedCredsExist()) {
         await loadCredentialsPrompts();
-        await testCredentials().catch((quit) => codeHSCredInvalidExit);
+        await testCredentials()
     } else {
         await setCredentialsPrompts();
-        await testCredentials().catch((quit) => codeHSCredInvalidExit);
+        await testCredentials();
         await promptSavePwdOptions();
         await continueConfirmation().catch((quit) => doneSetupExit);
     }
@@ -146,7 +146,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
     }
 
     async function testCredentials() {
-        return new Promise(async (resolve, reject) => {
+        return new Promise(async (resolve5, reject4) => {
             const spinner = ora({text: `${chalk.bold('Testing credentials...')}`}).start();
 
             const page = await browser.newPage();
@@ -158,9 +158,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                 spinner.succeed(`${chalk.bold('Login credentials valid')}`);
             }).catch(err => {
                 spinner.fail(`${chalk.red('Login credentials invalid...')}`);
-                reject(0);
+                codeHSCredInvalidExit();
             }).finally(() => {
-                resolve(1);
+                resolve5(1);
             });
         })
     }
@@ -323,7 +323,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
         const pg = await browser.newPage();
         let teacherID;
-        if (require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
+
+        if (fs.existsSync(path.join(__dirname, '/secrets/teacher.json')) && require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
             teacherID = require('./secrets/teacher.json').teacherID;
         } else {
 
@@ -780,7 +781,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                     }
 
                     //limits to one student for testing
-                    arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
@@ -945,38 +946,13 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
                                         let user = temp_split[6];
 
                                         await getSnapshotsAsync().then(docText => {
-                                            let parseXml;
 
-                                            if (window.DOMParser) {
-                                                parseXml = function (xmlStr) {
-                                                    return (new window.DOMParser()).parseFromString(xmlStr, "text/xml");
-                                                };
-                                            } else if (typeof window.ActiveXObject != "undefined" && new window.ActiveXObject("Microsoft.XMLDOM")) {
-                                                parseXml = function (xmlStr) {
-                                                    let xmlDoc = new window.ActiveXObject("Microsoft.XMLDOM");
-                                                    xmlDoc.async = "false";
-                                                    xmlDoc.loadXML(xmlStr);
-                                                    return xmlDoc;
-                                                };
-                                            } else {
-                                                parseXml = function () {
-                                                    return null;
-                                                }
-                                            }
-                                            let xmlStr = `<!DOCTYPE html><html><body>${removeFormattingCharacters(docText)}</body></html>`
-                                            let xmlDoc = parseXml(xmlStr);
-                                            if (xmlDoc) {
-                                                console.info(xmlStr);
-                                                console.info(xmlDoc);
-                                            } else {
-                                                console.info(removeFormattingCharacters(docText));
-                                            }
                                         }).catch(err => {
                                             console.error(err);
                                             //ignore
                                         });
 
-                                        await sleep(500000);
+                                        // await sleep(500000);
 
                                         function removeFormattingCharacters(str) {
                                             return str.replace(/[\n\r\t]/g, ' ').replace(/ {2,}/g, '');
@@ -1190,7 +1166,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getUTCMonth() + 1, dayRN = dateO
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            resolve('assume credentials are correct'); //TODO: remove on prod
+            // resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {

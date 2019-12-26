@@ -8,13 +8,15 @@ This is a NodeJS tool using the Puppeteer headless browser to crawl CodeHS.com f
 Clone this repository.
 ```bash
 git clone https://github.com/e-zhang09/CodeHS-HWCrawler.git
+cd CodeHS-HWCrawler
+npm install
 ```
 
 #### Alternative(NPM Package) Method
 Use the package manager [npm](https://www.npmjs.com/) to install CodeHS Crawler.
 
 ```bash
-npm install code_hs_crawler
+npm install codehs_grades -g
 ```
 
 >Note: The npm package will be updated less frequently.
