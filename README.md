@@ -58,11 +58,14 @@ Use points given by grader
 *Will have more options soon*  
 
 **If installed through npm i -g**  
-On unix systems: `/usr/local/lib/node` or `/usr/local/lib/node_modules`  
-On windows: `%USERPROFILE%\AppData\Roaming\npm\node_modules`  
+On unix systems: `/usr/local/lib/node/codehs_grades/` or `/usr/local/lib/node_modules/codehs_grades/`  
+On windows: `%USERPROFILE%\AppData\Roaming\npm\node_modules\codehs_grades\`  
   
-**If installed through npm i or git clone**  
-In the `node_modules` sub-folder of the install location
+**If installed through npm i**  
+In the `node_modules/codehs_grades/` sub-folder of the install location
+
+**If installed through git clone**  
+In the `out` sub-folder of the project installation location
 
 ## Troubleshooting
 ##### Problem names in output are not matching input names

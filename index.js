@@ -163,9 +163,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }).catch(err => {
                 spinner.fail(`${chalk.red('Login credentials invalid...')}`);
                 codeHSCredInvalidExit();
-            }).finally(() => {
-                resolve5(1);
             });
+
+            resolve5(1);
         })
     }
 
@@ -186,7 +186,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     type: 'password',
                     name: 'password',
                     message: 'What is your CodeHS password?',
-                    validate: value => validator.isAlphanumeric(value + '')
+                    validate: value => value.length > 0
                 }
             ], {onCancel: onPromptsCancel}
         );
