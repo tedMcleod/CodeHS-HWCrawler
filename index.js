@@ -25,9 +25,10 @@ try {
 let sessionData = {rebuildCache: false},
     arr_objs_classes = [];
 
-let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjRN.getDate(), hourRN = dateObjRN.getHours(), minuteRN = dateObjRN.getMinutes(),
+let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjRN.getDate(),
+    hourRN = dateObjRN.getHours(), minuteRN = dateObjRN.getMinutes(),
     yearRN = dateObjRN.getFullYear(),
-    dateStrRN = yearRN + "/" + monthRN + "/" + dayRN + "/" + (hourRN <= 12? hourRN + "AM": hourRN - 12 + "PM") + "/" + minuteRN;
+    dateStrRN = yearRN + "/" + monthRN + "/" + dayRN + "/" + (hourRN <= 12 ? hourRN + "AM" : hourRN - 12 + "PM") + "/" + minuteRN;
 
 /*
              _     _ _            _        _   _                   _     _                   _          ____ _        _             __ __                     __
@@ -746,8 +747,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             await pathExists(__dirname + '/node_modules/bottleneck/es5.js').then(async suc => {
                 await page.addScriptTag({path: __dirname + '/node_modules/bottleneck/es5.js'});
             }).catch(async err => {
-                await pathExists(__dirname+'/../../node_modules/bottleneck/es5.js').then(async suc => {
-                    await page.addScriptTag({path: __dirname +'/../../node_modules/bottleneck/es5.js'});
+                await pathExists(__dirname + '/../../node_modules/bottleneck/es5.js').then(async suc => {
+                    await page.addScriptTag({path: __dirname + '/../../node_modules/bottleneck/es5.js'});
                 }).catch(err => {
                     console.info(chalk.bold.red('Could not find the \'bottleneck\' module'));
                     process.exit();
@@ -755,7 +756,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             });
 
             page.on('console', consoleObj => {
-                if(consoleObj.text().includes('[ainfo]')){
+                if (consoleObj.text().includes('[ainfo]')) {
                     console.log(consoleObj.text().replace('[ainfo]', ''))
                 }
             });
@@ -794,6 +795,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     //limits to one student for testing
                     // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
+                    //limits to first student
+                    // arr_obj_students = [arr_obj_students[0]]; //TODO: Delete this for prod
+
                     console.info('fetching student pages', arr_obj_students);
 
                     // fetch student's page
@@ -815,7 +819,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
                                         } catch (err) {
                                             studentObject.assignments['' + key] = {
-                                                problemName: problemName.includes('201') ? 'Problem Removed' : problemName,
+                                                problemName: problemName.includes('201') ? '--Problem Removed--' : problemName,
                                                 firstTryDate: '--',
                                                 firstTryTime: '--',
                                                 timeWorkedBeforeDue: '--',
@@ -967,50 +971,73 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 div.innerHTML = html;
                                                 return div;
                                             }
+
                                             let editContainers = htmlToElement(removeFormattingCharacters(docText)).getElementsByClassName('snapshot-version');
                                             let previousDate;
+
+                                            if (!String.prototype.splice) {
+                                                String.prototype.splice = function (idx, rem, str) {
+                                                    return this.slice(0, idx) + str + this.slice(idx + Math.abs(rem));
+                                                };
+                                            }
+
+
                                             for (let i = 0; i < editContainers.length; i++) {
                                                 let dateStr = editContainers[i].getElementsByClassName('date')[0].innerHTML;
                                                 let timeStr = editContainers[i].getElementsByClassName('time')[0].innerHTML;
-                                                let date_editDate = new Date(dateStr + ' ' + timeStr);
+
+                                                if (!timeStr.includes(':')) {
+                                                    timeStr = timeStr.trim();
+                                                    timeStr = timeStr.splice(timeStr.length - 3, 0, ':00');
+                                                }
+
+                                                let combinedStr = dateStr + ' ' + timeStr;
+                                                console.info('combinedStr', combinedStr);
+                                                let date_editDate = new Date(combinedStr);
+                                                console.info('is nan', isNaN(+date_editDate));
 
                                                 let rawCodeObj = editContainers[i].getElementsByTagName('script')[0].innerText;
                                                 let code = JSON.parse(rawCodeObj)['default.js'];
-                                                arr_obj_studentCodes.push({
-                                                    editTime: date_editDate.toISOString(),
-                                                    code: code
-                                                });
-                                                if(date_editDate > date_dueDate && beforeDue === 0){
+                                                try {
+                                                    arr_obj_studentCodes.push({
+                                                        editTime: date_editDate.toISOString(),
+                                                        code: code
+                                                    });
+                                                } catch (pushError) {
+                                                    console.info('pushError', pushError);
+                                                }
+                                                if (date_editDate > date_dueDate && beforeDue === 0) {
                                                     beforeDue = runningTotalSeconds;
                                                 }
-                                                if(!previousDate){
+                                                if (!previousDate) {
                                                     previousDate = date_editDate;
                                                     runningTotalSeconds = 60;
-                                                } else{
-                                                    let elapsedTime = (previousDate.getTime() - date_editDate.getTime())/1000;
-                                                    if(elapsedTime > 30 * 60){
+                                                } else {
+                                                    let elapsedTime = (previousDate.getTime() - date_editDate.getTime()) / 1000;
+                                                    if (elapsedTime > 30 * 60) {
                                                         runningTotalSeconds += 3 * 60;
-                                                    }else if(elapsedTime > 10 * 60){
+                                                    } else if (elapsedTime > 10 * 60) {
                                                         runningTotalSeconds += 2 * 60;
-                                                    }else{
-                                                        runningTotalSeconds += Math.floor(elapsedTime/2);
+                                                    } else {
+                                                        runningTotalSeconds += Math.floor(elapsedTime / 2);
                                                     }
+
                                                 }
                                             }
 
-                                            if(beforeDue === 0){
+                                            if (beforeDue === 0) {
                                                 beforeDue = runningTotalSeconds;
                                             }
 
-                                            if(!problemStatus.toLowerCase().includes('final')){
+                                            if (!problemStatus.toLowerCase().includes('final')) {
                                                 //not finalized grade
-                                                if(runningTotalSeconds > 60 * 60){
+                                                if (runningTotalSeconds > 60 * 60) {
                                                     pointsAwarded = maxPoints;
-                                                }else if(runningTotalSeconds > 30 * 60){
-                                                    pointsAwarded = ((+maxPoints)/2) + '';
-                                                }else if(runningTotalSeconds > 15 * 60){
-                                                    pointsAwarded = ((+maxPoints)/4) + '';
-                                                }else{
+                                                } else if (runningTotalSeconds > 30 * 60) {
+                                                    pointsAwarded = ((+maxPoints) / 2) + '';
+                                                } else if (runningTotalSeconds > 15 * 60) {
+                                                    pointsAwarded = ((+maxPoints) / 4) + '';
+                                                } else {
                                                     pointsAwarded = '0';
                                                 }
                                             }
@@ -1045,12 +1072,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             });
                                         }
 
+                                        //TODO: temporary fix to only keep last version, add toggle soon
+                                        arr_obj_studentCodes = arr_obj_studentCodes.splice(arr_obj_studentCodes.length - 1);
+
                                         studentObject.assignments['' + key] = {
                                             problemName: problemName,
                                             firstTryDate: firstTryDate,
                                             firstTryTime: firstTryTime,
-                                            timeWorkedBeforeDue: beforeDue/60,
-                                            timeWorkedTotal: runningTotalSeconds/60,
+                                            timeWorkedBeforeDue: beforeDue / 60,
+                                            timeWorkedTotal: runningTotalSeconds / 60,
                                             onTimeStatus: submitted ? (late ? 'late' : 'on time') : 'not submitted',
                                             problemStatus: problemStatus,
                                             pointsAwarded: pointsAwarded,
@@ -1069,7 +1099,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                     // console.info(key);
                                     // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                     xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                                    console.info('[info] stuUrl', String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+                                    // console.info('[info] stuUrl', String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                     xhr.responseType = "document";
                                     xhr.send();
                                     // console.info('XHR Sent', key);
@@ -1156,10 +1186,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
-                    if(!studentObj.assignments[assignmentIDs].onTimeStatus.includes('on time')){
+                    if (!studentObj.assignments[assignmentIDs].onTimeStatus.includes('on time')) {
                         overAllOnTime = false;
                     }
-                    if(!studentObj.assignments[assignmentIDs].onTimeStatus.includes('not submitted')){
+                    if (!studentObj.assignments[assignmentIDs].onTimeStatus.includes('not submitted')) {
                         started = true;
                     }
                     studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
@@ -1170,7 +1200,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 studentRow.push(totalAwarded);
                 studentRow.push(totalPossible);
-                studentRow.push(overAllOnTime?'on time': (started? 'late' : 'not started'));
+                studentRow.push(overAllOnTime ? 'on time' : (started ? 'late' : 'not started'));
                 content_rows.push(studentRow);
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
@@ -1187,38 +1217,60 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
     }
 
     async function writeStudentCodes(classObj) {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             let {arr_assignments} = sessionData;
             let {teacherName, classNum} = classObj;
             let outPath = `${__dirname}/out/code/${teacherName}_P${classNum}/`;
-            arr_assignments.forEach(assignmentName => {
-                outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
-            });
-            outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
-            ensureDirectoryExistence(outPath);
 
-            let outFile = fs.createWriteStream(outPath);
-            let archive = archiver('zip', {
-                zlib: {level: 9} // Sets the compression level.
-            });
-
-            archive.pipe(outFile);
-
-            classObj.students.forEach(studentObj => {
-                let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
-                Object.keys(studentObj.assignments).forEach(assignmentIDs => {
-                    studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
-                        if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
-                            archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.txt`});
+            //TODO: Temporary fix to place files of different assigments in different folders
+            if (1 === 1) {
+                let writeQueue = [];
+                classObj.students.forEach(studentObj => {
+                    let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
+                    Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                        let assignmentName = studentObj.assignments[assignmentIDs+''].problemName;
+                        if(!assignmentName.includes('--Problem Removed--')){
+                            let folderPath = `${outPath}${assignmentName.replace(/ /g,'_')}`;
+                            studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
+                                if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
+                                    writeQueue.push(writeFileAsync(`${folderPath}/${studentIdentifier}__${encodeURIComponent(submissionObject.editTime)}.txt`, submissionObject.code))
+                                }
+                            })
                         }
-                    })
+                    });
                 });
-            });
+                await Promise.all(writeQueue).catch(err=>reject(err));
+                resolve(1);
+            } else {
+                arr_assignments.forEach(assignmentName => {
+                    outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
+                });
+                outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
+                ensureDirectoryExistence(outPath);
 
-            archive.finalize();
+                let outFile = fs.createWriteStream(outPath);
+                let archive = archiver('zip', {
+                    zlib: {level: 9} // Sets the compression level.
+                });
 
-            outFile.on('close', () => resolve(`${outPath} is done`));
-            archive.on('error', (err) => reject(err));
+                archive.pipe(outFile);
+
+                classObj.students.forEach(studentObj => {
+                    let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
+                    Object.keys(studentObj.assignments).forEach(assignmentIDs => {
+                        studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
+                            if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
+                                archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.txt`});
+                            }
+                        })
+                    });
+                });
+
+                archive.finalize();
+
+                outFile.on('close', () => resolve(`${outPath} is done`));
+                archive.on('error', (err) => reject(err));
+            }
         });
     }
 
@@ -1237,7 +1289,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
         }
     }
 
-    function printCompletionMessage(){
+    function printCompletionMessage() {
         console.log();
         console.info(`${chalk.bold('Parsing has been completed.')}`);
         console.info(`${chalk.bold(`Any suggestions? Open an issue in this ${terminalLink('repo', 'https://github.com/e-zhang09/CodeHS-HWCrawler')}`)}`);
@@ -1332,8 +1384,14 @@ String.prototype.minsToHHMMSS = function () {
     let seconds = Math.floor((mins_num * 60) - (hours * 3600) - (minutes * 60));
 
     // Appends 0 when unit is less than 10
-    if (hours   < 10) {hours   = "0"+hours;}
-    if (minutes < 10) {minutes = "0"+minutes;}
-    if (seconds < 10) {seconds = "0"+seconds;}
-    return hours+':'+minutes+':'+seconds;
+    if (hours < 10) {
+        hours = "0" + hours;
+    }
+    if (minutes < 10) {
+        minutes = "0" + minutes;
+    }
+    if (seconds < 10) {
+        seconds = "0" + seconds;
+    }
+    return hours + ':' + minutes + ':' + seconds;
 };
