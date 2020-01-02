@@ -799,7 +799,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                     //limits to first student
-                    arr_obj_students = [arr_obj_students[0]]; //TODO: Delete this for prod
+                    // arr_obj_students = [arr_obj_students[0]]; //TODO: Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
@@ -1107,43 +1107,47 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         let {assignments} = studentObject;
 
                         let totalTimeWorked = 0;
+                        let totalPoints = 0;
                         let arr_assignmentsKeys = Object.keys(assignments);
                         let isAllSubmitted = true;
                         arr_assignmentsKeys.forEach(key => {
                             totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
                             let {problemStatus} = assignments[key];
-                            if(problemStatus.includes('Not Submitted') || problemStatus.includes('Unopened')){
+                            if (problemStatus.includes('Not Submitted') || problemStatus.includes('Unopened')) {
                                 isAllSubmitted = false;
                             }
                         });
 
-                        if(totalTimeWorked >= 45 || isAllSubmitted){
+                        let numExercises = arr_assignmentsKeys.length;
+                        if (totalTimeWorked >= 45 || isAllSubmitted) {
                             //award full points to each exercise
                             arr_assignmentsKeys.forEach(key => {
-                               assignments[key].pointsAwarded = 1;
+                                assignments[key].pointsAwarded = 1;
+                                totalPoints += assignments[key].pointsAwarded;
                             });
-                        }else{
+                        } else {
                             arr_assignmentsKeys.forEach(key => {
                                 let {timeWorkedTotal} = assignments[key];
-                                if(timeWorkedTotal > 45 / arr_assignmentsKeys.length){
+                                if (timeWorkedTotal >= 45 / numExercises) {
                                     assignments[key].pointsAwarded = 1;
-                                }else if(timeWorkedTotal > 45 / (arr_assignmentsKeys.length * 3)){
-                                    assignments[key].pointsAwarded = Math.trunc(timeWorkedTotal / (45 / arr_assignmentsKeys.length) * 100) / 100;
-                                }else{
+                                } else if (timeWorkedTotal >= 45 / (numExercises * 3)) {
+                                    assignments[key].pointsAwarded = Math.round(timeWorkedTotal / (45 / numExercises) * 100) / 100;
+                                } else {
                                     assignments[key].pointsAwarded = 0;
                                 }
+                                totalPoints += assignments[key].pointsAwarded;
                             });
                         }
 
                         //append total total time worked to student
                         studentObject.timeSpentTotal = totalTimeWorked;
 
-                        console.info('[ainfo]', '');
-                        console.info('[ainfo]', JSON.stringify(studentObject, null, 4));
-                        console.info('[ainfo]', '');
-                    }));
+                        studentObject.totalPoints = totalPoints / numExercises * 10;
 
-                    await sleep(5000000);
+                        // console.info('[ainfo]', '');
+                        // console.info('[ainfo]', JSON.stringify(studentObject, null, 4));
+                        // console.info('[ainfo]', '');
+                    }));
 
                     return arr_obj_students;
 
@@ -1189,11 +1193,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             let outPath = __dirname + '/out/grades/' + classObj.teacherName + '_P' + classObj.classNum + '/';
             arr_assignments.forEach(assignmentName => {
                 // console.info('assignmentName' , assignmentName);
-                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points');
+                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
                 outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
             });
             outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
-            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?');
+            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time On Assignment');
             content_rows.push(headers);
             classObj.students.forEach(studentObj => {
                 let studentRow = [];
@@ -1205,9 +1209,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     let len = (String(base || 10).length - String(this).length) + 1;
                     return len > 0 ? new Array(len).join(chr || '0') + this : this;
                 };
-
-                let totalAwarded = 0;
-                let totalPossible = 0;
 
                 let overAllOnTime = true;
                 let started = false;
@@ -1234,13 +1235,14 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     }
                     studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
                     studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
-                    totalAwarded += (+studentObj.assignments[assignmentIDs].pointsAwarded);
-                    totalPossible += (+studentObj.assignments[assignmentIDs].maxPoints);
+                    studentRow.push(studentObj.assignments[assignmentIDs].numberOfVersions);
+                    studentRow.push(studentObj.assignments[assignmentIDs].numberOfSessions);
                 });
 
-                studentRow.push(totalAwarded);
-                studentRow.push(totalPossible);
+                studentRow.push(studentObj.totalPoints);
+                studentRow.push(10);
                 studentRow.push(overAllOnTime ? 'on time' : (started ? 'late' : 'not started'));
+                studentRow.push(studentObj.timeSpentTotal);
                 content_rows.push(studentRow);
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
