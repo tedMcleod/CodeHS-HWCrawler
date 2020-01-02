@@ -396,15 +396,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     {
                         type: 'list',
                         name: 'arr_assignments',
-                        message: `Enter assignment names (separated by ${chalk.bold(',')})`,
+                        message: `Enter exercise names (separated by ${chalk.bold(',')})`,
                         initial: '',
                         separator: ',',
-                        validate: val => val.toString().length > 0 ? true : 'Enter at least one assignment!'
+                        validate: val => val.toString().length > 0 ? true : 'Enter at least one exercise!'
                     },
                     {
                         type: 'date',
                         name: 'date_dueDate',
-                        message: 'When are these assignments due?',
+                        message: 'When is this assignment due?',
                         initial: new Date(yearRN, monthRN - 1, dayRN, 23, 59),
                         mask: 'YYYY-MM-DD HH:mm'
                     },
