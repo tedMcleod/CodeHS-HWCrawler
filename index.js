@@ -758,11 +758,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             });
 
             //TODO: remove on prod
-            page.on('console', consoleObj => {
-                if (consoleObj.text().includes('[ainfo]')) {
-                    console.log(consoleObj.text().replace('[ainfo]', ''))
-                }
-            });
+            // page.on('console', consoleObj => {
+            //     if (consoleObj.text().includes('[ainfo]')) {
+            //         console.log(consoleObj.text().replace('[ainfo]', ''))
+            //     }
+            // });
 
             obj.students = await page.evaluate(
                 async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, downloadCode) => {
@@ -1342,7 +1342,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            resolve('assume credentials are correct'); //TODO: remove on prod
+            // resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {
