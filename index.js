@@ -12,6 +12,7 @@ const prompts = require('prompts'),
     pLimit = require('p-limit'),
     netLimit = pLimit(1),
     archiver = require('archiver'),
+    os = require('os'),
     terminalLink = require('terminal-link');
 
 let crypto, browser;
@@ -744,6 +745,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
 
+            //attach bottleneck
             await pathExists(__dirname + '/node_modules/bottleneck/es5.js').then(async suc => {
                 await page.addScriptTag({path: __dirname + '/node_modules/bottleneck/es5.js'});
             }).catch(async err => {
@@ -755,6 +757,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 })
             });
 
+            //TODO: remove on prod
             page.on('console', consoleObj => {
                 if (consoleObj.text().includes('[ainfo]')) {
                     console.log(consoleObj.text().replace('[ainfo]', ''))
@@ -796,11 +799,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
 
                     //limits to first student
-                    // arr_obj_students = [arr_obj_students[0]]; //TODO: Delete this for prod
+                    arr_obj_students = [arr_obj_students[0]]; //TODO: Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
-                    // fetch student's page
+                    // fetch date from students' page
                     await Promise.all(arr_obj_students.map(async (studentObject) => {
                         // console.info('processing', studentObject);
                         await limiter.schedule(() => {
@@ -832,7 +835,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     submissionTime: '--',
                                                     code: '--- --- --- NO CODE AVAILABLE --- --- ---',
                                                     ID: '--'
-                                                }]
+                                                }],
+                                                numberOfVersions: '--',
+                                                numberOfSessions: '--'
                                             };
 
                                             res(1);
@@ -891,38 +896,38 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             }
                                         }
 
-                                        function formatParams(params) {
-                                            return "?" + Object
-                                                .keys(params)
-                                                .map(function (key) {
-                                                    return key + "=" + encodeURIComponent(params[key])
-                                                })
-                                                .join("&")
-                                        }
+                                        // function formatParams(params) {
+                                        //     return "?" + Object
+                                        //         .keys(params)
+                                        //         .map(function (key) {
+                                        //             return key + "=" + encodeURIComponent(params[key])
+                                        //         })
+                                        //         .join("&")
+                                        // }
 
-                                        function getCurrHistory() {
-                                            return new Promise(function (r, j) {
-                                                let historyRequest = new XMLHttpRequest();
-                                                historyRequest.onload = function () {
-                                                    r(this.responseText);
-                                                };
-                                                let queryParams = {
-                                                    student_assignment_id: studentAssignmentID,
-                                                    method: 'get_grading_history'
-                                                };
-                                                historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
-                                                historyRequest.send();
-                                            });
-                                        }
-
-                                        let responseTxt = await getCurrHistory();
-                                        // console.info('curr history response Txt', responseTxt);
-                                        let responseObject = JSON.parse('' + responseTxt);
-                                        let currentGrade = responseObject['current_status'];
-                                        // console.info(currentGrade);
-                                        let pointsAwarded = '' + currentGrade['score'];
-                                        if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
-                                        let maxPoints = currentGrade['out_of'] + '';
+                                        // function getCurrHistory() {
+                                        //     return new Promise(function (r, j) {
+                                        //         let historyRequest = new XMLHttpRequest();
+                                        //         historyRequest.onload = function () {
+                                        //             r(this.responseText);
+                                        //         };
+                                        //         let queryParams = {
+                                        //             student_assignment_id: studentAssignmentID,
+                                        //             method: 'get_grading_history'
+                                        //         };
+                                        //         historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
+                                        //         historyRequest.send();
+                                        //     });
+                                        // }
+                                        //
+                                        // let responseTxt = await getCurrHistory();
+                                        // // console.info('curr history response Txt', responseTxt);
+                                        // let responseObject = JSON.parse('' + responseTxt);
+                                        // let currentGrade = responseObject['current_status'];
+                                        // // console.info(currentGrade);
+                                        // let pointsAwarded = '' + currentGrade['score'];
+                                        // if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
+                                        // let maxPoints = currentGrade['out_of'] + '';
 
                                         // get time worked
                                         let selectionField = document.getElementById('assignment-submission-select');
@@ -960,7 +965,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         //Time spent on assignment
                                         let runningTotalSeconds = 0;
-                                        let beforeDue = 0;
+                                        let beforeDue;
+
+                                        let numVersions = 0;
+                                        let numSesh = 1;
 
                                         //holds all of a student's code
                                         let arr_obj_studentCodes = [];
@@ -972,7 +980,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 return div;
                                             }
 
-                                            let editContainers = htmlToElement(removeFormattingCharacters(docText)).getElementsByClassName('snapshot-version');
+                                            let editContainers = htmlToElement(docText).getElementsByClassName('snapshot-version');
                                             let previousDate;
 
                                             if (!String.prototype.splice) {
@@ -981,7 +989,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 };
                                             }
 
-
+                                            numVersions = editContainers.length;
                                             for (let i = 0; i < editContainers.length; i++) {
                                                 let dateStr = editContainers[i].getElementsByClassName('date')[0].innerHTML;
                                                 let timeStr = editContainers[i].getElementsByClassName('time')[0].innerHTML;
@@ -992,11 +1000,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 }
 
                                                 let combinedStr = dateStr + ' ' + timeStr;
-                                                console.info('combinedStr', combinedStr);
+                                                // console.info('combinedStr', combinedStr);
                                                 let date_editDate = new Date(combinedStr);
-                                                console.info('is nan', isNaN(+date_editDate));
+                                                if (!previousDate) previousDate = date_editDate;
+                                                // console.info('is nan', isNaN(+date_editDate));
 
-                                                let rawCodeObj = editContainers[i].getElementsByTagName('script')[0].innerText;
+                                                let rawCodeObj = removeFormattingCharacters(editContainers[i].getElementsByTagName('script')[0].innerText);
                                                 let code = JSON.parse(rawCodeObj)['default.js'];
                                                 try {
                                                     arr_obj_studentCodes.push({
@@ -1006,50 +1015,36 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 } catch (pushError) {
                                                     console.info('pushError', pushError);
                                                 }
-                                                if (date_editDate > date_dueDate && beforeDue === 0) {
+
+                                                if (!beforeDue && date_editDate > date_dueDate) {
                                                     beforeDue = runningTotalSeconds;
+                                                    return;
                                                 }
-                                                if (!previousDate) {
-                                                    previousDate = date_editDate;
-                                                    runningTotalSeconds = 60;
+
+                                                let deltaTime = (previousDate - date_editDate) / 1000; //in seconds
+                                                if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
+                                                    numSesh++;
                                                 } else {
-                                                    let elapsedTime = (previousDate.getTime() - date_editDate.getTime()) / 1000;
-                                                    if (elapsedTime > 30 * 60) {
-                                                        runningTotalSeconds += 3 * 60;
-                                                    } else if (elapsedTime > 10 * 60) {
-                                                        runningTotalSeconds += 2 * 60;
-                                                    } else {
-                                                        runningTotalSeconds += Math.floor(elapsedTime / 2);
-                                                    }
-
+                                                    runningTotalSeconds += deltaTime;
                                                 }
+
+                                                previousDate = date_editDate; //update prev to rn
                                             }
 
-                                            if (beforeDue === 0) {
-                                                beforeDue = runningTotalSeconds;
-                                            }
 
-                                            if (!problemStatus.toLowerCase().includes('final')) {
-                                                //not finalized grade
-                                                if (runningTotalSeconds > 60 * 60) {
-                                                    pointsAwarded = maxPoints;
-                                                } else if (runningTotalSeconds > 30 * 60) {
-                                                    pointsAwarded = ((+maxPoints) / 2) + '';
-                                                } else if (runningTotalSeconds > 15 * 60) {
-                                                    pointsAwarded = ((+maxPoints) / 4) + '';
-                                                } else {
-                                                    pointsAwarded = '0';
-                                                }
-                                            }
                                         }).catch(err => {
                                             console.error(err);
                                             //ignore
                                         });
 
+                                        if (!beforeDue) {
+                                            beforeDue = runningTotalSeconds;
+                                        }
+
                                         // await sleep(500000);
 
                                         function removeFormattingCharacters(str) {
-                                            return str.replace(/[\n\r\t]/g, ' ').replace(/ {2,}/g, '');
+                                            return str.replace(/(\\r\\n|\\n|\\r|\\t)/g, ' ').replace(/ {2,}/g, '');
                                         }
 
                                         function getSnapshotsAsync() {
@@ -1083,14 +1078,13 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             timeWorkedTotal: runningTotalSeconds / 60,
                                             onTimeStatus: submitted ? (late ? 'late' : 'on time') : 'not submitted',
                                             problemStatus: problemStatus,
-                                            pointsAwarded: pointsAwarded,
-                                            maxPoints: maxPoints,
-                                            studentCodes: arr_obj_studentCodes
+                                            pointsAwarded: 0,
+                                            maxPoints: 1,
+                                            studentCodes: arr_obj_studentCodes,
+                                            numberOfVersions: numVersions,
+                                            numberOfSessions: numSesh
                                         };
 
-                                        function sleep(ms) {
-                                            return new Promise(resolution => setTimeout(resolution, ms));
-                                        }
 
                                         res(1);
                                     };
@@ -1107,9 +1101,55 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                             });
                             return Promise.all(allTasks);
                         });
+
+                        //calculate points to award for each exercise
+                        console.info(studentObject);
+                        let {assignments} = studentObject;
+
+                        let totalTimeWorked = 0;
+                        let arr_assignmentsKeys = Object.keys(assignments);
+                        let isAllSubmitted = true;
+                        arr_assignmentsKeys.forEach(key => {
+                            totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
+                            let {problemStatus} = assignments[key];
+                            if(problemStatus.includes('Not Submitted') || problemStatus.includes('Unopened')){
+                                isAllSubmitted = false;
+                            }
+                        });
+
+                        if(totalTimeWorked >= 45 || isAllSubmitted){
+                            //award full points to each exercise
+                            arr_assignmentsKeys.forEach(key => {
+                               assignments[key].pointsAwarded = 1;
+                            });
+                        }else{
+                            arr_assignmentsKeys.forEach(key => {
+                                let {timeWorkedTotal} = assignments[key];
+                                if(timeWorkedTotal > 45 / arr_assignmentsKeys.length){
+                                    assignments[key].pointsAwarded = 1;
+                                }else if(timeWorkedTotal > 45 / (arr_assignmentsKeys.length * 3)){
+                                    assignments[key].pointsAwarded = Math.trunc(timeWorkedTotal / (45 / arr_assignmentsKeys.length) * 100) / 100;
+                                }else{
+                                    assignments[key].pointsAwarded = 0;
+                                }
+                            });
+                        }
+
+                        //append total total time worked to student
+                        studentObject.timeSpentTotal = totalTimeWorked;
+
+                        console.info('[ainfo]', '');
+                        console.info('[ainfo]', JSON.stringify(studentObject, null, 4));
+                        console.info('[ainfo]', '');
                     }));
 
+                    await sleep(5000000);
+
                     return arr_obj_students;
+
+                    function sleep(ms) {
+                        return new Promise(resolution => setTimeout(resolution, ms));
+                    }
                 }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students, downloadOptions.includes('code')
             );
 
@@ -1228,9 +1268,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 classObj.students.forEach(studentObj => {
                     let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
-                        let assignmentName = studentObj.assignments[assignmentIDs+''].problemName;
-                        if(!assignmentName.includes('--Problem Removed--')){
-                            let folderPath = `${outPath}${assignmentName.replace(/ /g,'_')}`;
+                        let assignmentName = studentObj.assignments[assignmentIDs + ''].problemName;
+                        if (!assignmentName.includes('--Problem Removed--')) {
+                            let folderPath = `${outPath}${assignmentName.replace(/ /g, '_')}`;
                             studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
                                 if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
                                     writeQueue.push(writeFileAsync(`${folderPath}/${studentIdentifier}__${encodeURIComponent(submissionObject.editTime)}.txt`, submissionObject.code))
@@ -1239,7 +1279,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         }
                     });
                 });
-                await Promise.all(writeQueue).catch(err=>reject(err));
+                await Promise.all(writeQueue).catch(err => reject(err));
                 resolve(1);
             } else {
                 arr_assignments.forEach(assignmentName => {
@@ -1300,7 +1340,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            // resolve('assume credentials are correct'); //TODO: remove on prod
+            resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {
@@ -1378,7 +1418,7 @@ String.prototype.replaceAll = function (search, replacement) {
 };
 
 String.prototype.minsToHHMMSS = function () {
-    let mins_num = parseFloat(this, 10); // don't forget the second param
+    let mins_num = parseFloat(this, 10);
     let hours = Math.floor(mins_num / 60);
     let minutes = Math.floor((mins_num - ((hours * 3600)) / 60));
     let seconds = Math.floor((mins_num * 60) - (hours * 3600) - (minutes * 60));
