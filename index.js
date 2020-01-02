@@ -1379,7 +1379,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            resolve('assume credentials are correct'); //TODO: remove on prod
+            // resolve('assume credentials are correct'); //TODO: remove on prod
             let warningsLength;
             let teacherID;
             try {
