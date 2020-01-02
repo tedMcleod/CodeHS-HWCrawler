@@ -596,6 +596,105 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 await writeFileAsync(cached_modulePath + '/index.html', bodyHTML);
             }
 
+            let arr_assignmentsCopy = arr_assignments.slice();
+
+            // await sleep(15000);
+
+            page.on('console', consoleObj => {
+                // TODO: Remove on prod
+
+                // if (consoleObj.text().includes('[ainfo]')) {
+                //     console.log(consoleObj.text().replace('[ainfo]', ''))
+                // }
+                if (consoleObj.text().includes('[awarning]')) {
+                    console.log(chalk.yellow.bold(consoleObj.text().replace('[awarning]', '')))
+                }
+                if (consoleObj.text().includes('[aerror]')) {
+                    console.log(chalk.red.bold(consoleObj.text().replace('[aerror]', '')));
+                    process.exit();
+                }
+            });
+            let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy) => {
+                function sleep(ms) {
+                    return new Promise(resolution => setTimeout(resolution, ms));
+                }
+
+                // console.info('[ainfo] arr_assignmentsCopy', JSON.stringify(arr_assignmentsCopy, null, 4));
+
+                let originalLength = arr_assignmentsCopy.length;
+
+                let arr_IDs = [];
+                let children_possibleNodes = document.getElementsByClassName('activity-item');
+                for (let i = 0; i < children_possibleNodes.length; i++) {
+                    if (children_possibleNodes[i].getAttribute('data-original-title')) {
+                        let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+                        if (str.includes(':')) str = str.split(':')[0];
+                        for (let j = 0; j < arr_assignmentsCopy.length; j++) {
+                            if (str.includes(arr_assignmentsCopy[j].toLowerCase())) {
+                                if (str.length !== arr_assignmentsCopy[j].length) {
+                                    console.log('[awarning]', `is \"${str}\" the exercise you were looking for?`)
+                                }
+                                //got one assignment
+                                arr_IDs.push({
+                                    name: arr_assignmentsCopy[j],
+                                    url: children_possibleNodes[i].children[0].href
+                                });
+                                arr_assignmentsCopy.splice(j, 1);
+                                break;
+                            }
+                        }
+                        if (arr_assignmentsCopy.length === 0) {
+                            //got all assignments needed
+                            break;
+                        }
+                    }
+                }
+                // console.info('[ainfo] arr_assignmentsCopy', JSON.stringify(arr_assignmentsCopy, null, 4));
+                if (arr_assignmentsCopy.length === originalLength) {
+                    console.log('[aerror]', 'The following assignments were not found: ' + JSON.stringify(arr_assignmentsCopy))
+                } else if (arr_assignmentsCopy.length !== 0) {
+                    console.log('[awarning]', 'The following assignments were not found: ' + JSON.stringify(arr_assignmentsCopy) + ', proceeding with the other problems in 5 seconds...')
+                    await sleep(5000);
+                }
+
+                let arr_obj_students = [];
+                let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
+
+                console.info('numStudents', table.length);
+                for (let i = 0; i < table.length; i++) {
+                    let student_firstName = table[i].getAttribute('data-first-name').toString();
+                    let student_lastName = table[i].getAttribute('data-last-name').toString();
+                    let obj_student = {
+                        firstName: student_firstName,
+                        lastName: student_lastName,
+                        assignments: {}
+                    };
+
+                    let candidate_assignments = table[i].getElementsByClassName('progress-circle');
+                    // console.info('num student-link candidates', candidate_assignments.length);
+                    for (let j = 0; j < candidate_assignments.length; j++) {
+                        let refStr = candidate_assignments[j].href;
+                        let refStrComponents = refStr.split('/');
+                        if (refStr && refStrComponents.length >= 4) {
+                            refStrComponents.slice().some(str => {
+                                if (str.toString().trim().length >= 3) {
+                                    if (!str.match(/[a-zA-Z:]/g)) {
+                                        //to parse it even if from cache
+                                        obj_student.id = str;
+                                        // console.info('got student id', str);
+                                        return '0';
+                                    }
+                                }
+                            });
+                            break;
+                        }
+                    }
+                    arr_obj_students.push(obj_student);
+                }
+
+                return [arr_IDs, arr_obj_students];
+            }, arr_assignmentsCopy);
+
             let rosterPage;
             if (boolean_useCache) {
                 rosterPage = await browser.newPage();
@@ -664,76 +763,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             // await writeFileAsync('./out/test/index.html', bodyHTML);
 
 
-            let arr_assignmentsCopy = arr_assignments.slice();
-
-            // await sleep(15000);
-
-            // page.on('console', consoleObj => console.log(consoleObj.text().includes('[info]')?consoleObj.text():''));
-            let [arr_assignmentIDs, arr_obj_students] = await page.evaluate(async (arr_assignmentsCopy, obj_studentEmail) => {
-                console.info('arr_assignmentsCopy', arr_assignmentsCopy);
-
-                let arr_IDs = [];
-                let children_possibleNodes = document.getElementsByClassName('activity-item');
-                for (let i = 0; i < children_possibleNodes.length; i++) {
-                    if (children_possibleNodes[i].getAttribute('data-original-title')) {
-                        let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
-                        for (let j = 0; j < arr_assignmentsCopy.length; j++) {
-                            if (str.includes(arr_assignmentsCopy[j].toLowerCase())) {
-                                //got one assignment
-                                arr_IDs.push({
-                                    name: arr_assignmentsCopy[j],
-                                    url: children_possibleNodes[i].children[0].href
-                                });
-                                arr_assignmentsCopy.splice(j, 1);
-                                break;
-                            }
-                        }
-                        if (arr_assignmentsCopy.length === 0) {
-                            //got all assignments needed
-                            break;
-                        }
-                    }
-                }
-
-                let arr_obj_students = [];
-                let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
-
-                console.info('numStudents', table.length);
-                for (let i = 0; i < table.length; i++) {
-                    let student_firstName = table[i].getAttribute('data-first-name').toString();
-                    let student_lastName = table[i].getAttribute('data-last-name').toString();
-                    let obj_student = {
-                        firstName: student_firstName,
-                        lastName: student_lastName,
-                        email: obj_studentEmail[student_firstName + ' ' + student_lastName],
-                        assignments: {}
-                    };
-
-                    let candidate_assignments = table[i].getElementsByClassName('progress-circle');
-                    // console.info('num student-link candidates', candidate_assignments.length);
-                    for (let j = 0; j < candidate_assignments.length; j++) {
-                        let refStr = candidate_assignments[j].href;
-                        let refStrComponents = refStr.split('/');
-                        if (refStr && refStrComponents.length >= 4) {
-                            refStrComponents.slice().some(str => {
-                                if (str.toString().trim().length >= 3) {
-                                    if (!str.match(/[a-zA-Z:]/g)) {
-                                        //to parse it even if from cache
-                                        obj_student.id = str;
-                                        // console.info('got student id', str);
-                                        return '0';
-                                    }
-                                }
-                            });
-                            break;
-                        }
-                    }
-                    arr_obj_students.push(obj_student);
-                }
-
-                return [arr_IDs, arr_obj_students];
-            }, arr_assignmentsCopy, obj_studentEmail);
-
             for (let i = 0; i < arr_assignmentIDs.length; i++) {
                 let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
                 arr_assignmentIDs[i] = temp_split[6];
@@ -757,15 +786,17 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 })
             });
 
+
             //TODO: remove on prod
-            // page.on('console', consoleObj => {
-            //     if (consoleObj.text().includes('[ainfo]')) {
-            //         console.log(consoleObj.text().replace('[ainfo]', ''))
-            //     }
-            // });
+
+            page.on('console', consoleObj => {
+                // if (consoleObj.text().includes('[ainfo]')) {
+                //     console.log(consoleObj.text().replace('[ainfo]', ''))
+                // }
+            });
 
             obj.students = await page.evaluate(
-                async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, downloadCode) => {
+                async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, downloadCode, obj_studentEmail) => {
                     //import bottleneck from script tag
                     let Bottleneck = window.Bottleneck;
                     const limiter = new Bottleneck({
@@ -821,6 +852,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         try {
                                             startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
                                         } catch (err) {
+                                            studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
+                                            console.info('[ainfo] email ' + studentObject.email);
                                             studentObject.assignments['' + key] = {
                                                 problemName: problemName.includes('201') ? '--Problem Removed--' : problemName,
                                                 firstTryDate: '--',
@@ -839,6 +872,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 numberOfVersions: '--',
                                                 numberOfSessions: '--'
                                             };
+
+                                            await sleep(10000); // wait ten seconds before messing up
 
                                             res(1);
                                         }
@@ -1068,8 +1103,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         }
 
                                         //TODO: temporary fix to only keep last version, add toggle soon
-                                        arr_obj_studentCodes = arr_obj_studentCodes.splice(arr_obj_studentCodes.length - 1);
+                                        arr_obj_studentCodes = [arr_obj_studentCodes[0]];
 
+
+                                        studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
+                                        console.info('[ainfo] student email', studentObject.email);
                                         studentObject.assignments['' + key] = {
                                             problemName: problemName,
                                             firstTryDate: firstTryDate,
@@ -1154,7 +1192,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     function sleep(ms) {
                         return new Promise(resolution => setTimeout(resolution, ms));
                     }
-                }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students, downloadOptions.includes('code')
+                }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students, downloadOptions.includes('code'), obj_studentEmail
             );
 
             // await sleep(100000);
@@ -1186,12 +1224,16 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeStudentGrades(classObj) {
         return new Promise((re, reje) => {
-            let {date_dueDate, arr_assignments} = sessionData;
+            let {date_dueDate} = sessionData;
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
 
             let outPath = __dirname + '/out/grades/' + classObj.teacherName + '_P' + classObj.classNum + '/';
-            arr_assignments.forEach(assignmentName => {
+
+            //sessionData.arr_assignments is unreliable because actual assignment list may be changed
+            // console.info(classObj.students[0].assignments);
+            Object.keys(classObj.students[0].assignments).forEach(assignmentKey => {
+                let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
                 outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
