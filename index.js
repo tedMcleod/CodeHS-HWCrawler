@@ -833,7 +833,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 maxPoints: '--',
                                                 studentCodes: [{
                                                     submissionTime: '--',
-                                                    code: '--- --- --- NO CODE AVAILABLE --- --- ---',
+                                                    code: null,
                                                     ID: '--'
                                                 }],
                                                 numberOfVersions: '--',
@@ -1005,7 +1005,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 if (!previousDate) previousDate = date_editDate;
                                                 // console.info('is nan', isNaN(+date_editDate));
 
-                                                let rawCodeObj = removeFormattingCharacters(editContainers[i].getElementsByTagName('script')[0].innerText);
+                                                let rawCodeObj = editContainers[i].getElementsByTagName('script')[0].text;
                                                 let code = JSON.parse(rawCodeObj)['default.js'];
                                                 try {
                                                     arr_obj_studentCodes.push({
@@ -1066,9 +1066,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 xmlhr.send(`item=${item}&user=${user}&course=0&method=get_snapshots`);
                                             });
                                         }
-
-                                        //TODO: temporary fix to only keep last version, add toggle soon
-                                        arr_obj_studentCodes = arr_obj_studentCodes.splice(arr_obj_studentCodes.length - 1);
 
                                         studentObject.assignments['' + key] = {
                                             problemName: problemName,
@@ -1142,7 +1139,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         //append total total time worked to student
                         studentObject.timeSpentTotal = totalTimeWorked;
 
-                        studentObject.totalPoints = totalPoints / numExercises * 10;
+                        studentObject.totalPoints = Math.round(totalPoints / numExercises * 10 * 100) / 100;
 
                         // console.info('[ainfo]', '');
                         // console.info('[ainfo]', JSON.stringify(studentObject, null, 4));
@@ -1268,16 +1265,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             if (1 === 1) {
                 let writeQueue = [];
                 classObj.students.forEach(studentObj => {
-                    let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
+                    let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}_${studentObj.id}`;
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         let assignmentName = studentObj.assignments[assignmentIDs + ''].problemName;
                         if (!assignmentName.includes('--Problem Removed--')) {
                             let folderPath = `${outPath}${assignmentName.replace(/ /g, '_')}`;
-                            studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
-                                if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
-                                    writeQueue.push(writeFileAsync(`${folderPath}/${studentIdentifier}__${encodeURIComponent(submissionObject.editTime)}.txt`, submissionObject.code))
-                                }
-                            })
+                            let codes = studentObj.assignments[assignmentIDs + ''].studentCodes;
+                            if (codes.length > 0 && codes[0].code !== null) {
+                                writeQueue.push(writeFileAsync(`${folderPath}/${studentIdentifier}.js`, codes[0].code));
+                            }
                         }
                     });
                 });
@@ -1301,8 +1297,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
-                            if (!submissionObject.code.includes('--- --- --- NO CODE AVAILABLE --- --- ---')) {
-                                archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.txt`});
+                            if (submissionObject.code !== null) {
+                                archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
                             }
                         })
                     });
