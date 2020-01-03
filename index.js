@@ -1417,11 +1417,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeFileAsync(path, content) {
         return new Promise((resolve, reject) => {
-            if(path.includes(':')){
-                // if there are more than one ':', directories get messed up on windows
-                path = path.replaceAll(':', '--');
+            if(path.indexOf(':') && path.lastIndexOf(':') !== path.indexOf(':')){
+                //colons (:) may affect the directory resolutions of OSes differently...
+                //replace all colon but the first colon in the meantime.
+                path = path.substring(0, path.indexOf(':') + 1) + path.substring(path.indexOf(':') + 1).replace(/:/g, '--');
             }
-            console.info(`${os.EOL}${path}`);
+            // console.info(`${os.EOL}${path}`);
             ensureDirectoryExistence(path);
             fs.writeFile(path, content, function (err) {
                 if (err) {
