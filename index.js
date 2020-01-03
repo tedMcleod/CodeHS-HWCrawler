@@ -85,7 +85,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function startPuppeteer() {
         browser = await puppeteer.launch({
-            // headless: false //TODO: remove for production
+            // headless: false //remove for production
         });
     }
 
@@ -508,7 +508,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             message: 'Download what?',
             choices: [
                 {title: 'Student\'s score', value: 'score', selected: true},
-                {title: 'Student\'s code', value: 'code', selected: true}
+                {title: 'Student\'s code', value: 'code', selected: true},
+                {title: 'Student\'s coding history', value: 'history', selected: false}
             ],
             min: 1,
             hint: '- Space to select. Return to submit',
@@ -530,6 +531,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             await parseClassPages(classObj, arr_objs_classes, browser, spinner);
             spinner.text = `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Writing files...`)}`;
+
             await writeClass(classObj);
             spinner.succeed(`${chalk.bold(`${__dirname}/out/~/${classObj.teacherName + '_P' + classObj.classNum}`)}`);
             a(Date.now());
@@ -560,27 +562,22 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 });
             }
 
-            //TODO: JUST GET RID OF THESE VARIABLES
             let boolean_useCache = true;
             let boolean_buildCache = false;
 
-            if (boolean_useCache) {
-                await pathExists(cached_modulePath + '/index.html').then(success => {
-                    //use cache
-                    url_sectionAllModule = `file:${cached_modulePath}/index.html`;
-                }).catch(err => {
-                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
-                    boolean_useCache = false;
-                    boolean_buildCache = true;
-                });
-            }
+            await pathExists(cached_modulePath + '/index.html').then(success => {
+                //use cache
+                url_sectionAllModule = `file:${cached_modulePath}/index.html`;
+            }).catch(err => {
+                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
+                boolean_useCache = false;
+                boolean_buildCache = true;
+            });
+
             let pageGoOptions = {
                 waitUntil: 'networkidle2',
                 timeout: 0
             };
-            if (boolean_useCache) {
-                // await page.setJavaScriptEnabled( false );
-            }
             // console.info(url_sectionAllModule);
             await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
                 if (errObj.name !== 'TimeoutError') {
@@ -601,8 +598,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             // await sleep(15000);
 
             page.on('console', consoleObj => {
-                // TODO: Remove on prod
-
+                // Remove on prod, info is more or less for debug only
                 // if (consoleObj.text().includes('[ainfo]')) {
                 //     console.log(consoleObj.text().replace('[ainfo]', ''))
                 // }
@@ -628,27 +624,30 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 for (let i = 0; i < children_possibleNodes.length; i++) {
                     if (children_possibleNodes[i].getAttribute('data-original-title')) {
                         let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
-                        if (str.includes(':')) str = str.split(':')[0];
+                        str = str.slice(0, str.lastIndexOf(":")); //remove the status that follows the problem name
+
                         for (let j = 0; j < arr_assignmentsCopy.length; j++) {
-                            if (str.includes(arr_assignmentsCopy[j].toLowerCase())) {
-                                if (str.length !== arr_assignmentsCopy[j].length) {
-                                    console.log('[awarning]', `is \"${str}\" the exercise you were looking for?`)
-                                }
+                            if (str.toLowerCase().trim() === arr_assignmentsCopy[j].toLowerCase()) {
+                                //assignments are already trimmed from prompts
                                 //got one assignment
                                 arr_IDs.push({
                                     name: arr_assignmentsCopy[j],
                                     url: children_possibleNodes[i].children[0].href
                                 });
+
+                                //remove 'assignment' name from to-search list
                                 arr_assignmentsCopy.splice(j, 1);
                                 break;
                             }
                         }
+
                         if (arr_assignmentsCopy.length === 0) {
                             //got all assignments needed
                             break;
                         }
                     }
                 }
+
                 // console.info('[ainfo] arr_assignmentsCopy', JSON.stringify(arr_assignmentsCopy, null, 4));
                 if (arr_assignmentsCopy.length === originalLength) {
                     console.log('[aerror]', 'The following assignments were not found: ' + JSON.stringify(arr_assignmentsCopy))
@@ -762,19 +761,18 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             // let bodyHTML = await page.evaluate(() => document.body.innerHTML);
             // await writeFileAsync('./out/test/index.html', bodyHTML);
 
-
             for (let i = 0; i < arr_assignmentIDs.length; i++) {
                 let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
                 arr_assignmentIDs[i] = temp_split[6];
             }
 
-            if (boolean_useCache) {
-                await page.goto('https://www.codehs.com');
-            }
+            //need to move to codehs.com for cors
+            if (boolean_useCache) await page.goto('https://www.codehs.com');
 
+            //update spinner
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
 
-            //attach bottleneck
+            //attach bottleneckJS to limit network calls
             await pathExists(__dirname + '/node_modules/bottleneck/es5.js').then(async suc => {
                 await page.addScriptTag({path: __dirname + '/node_modules/bottleneck/es5.js'});
             }).catch(async err => {
@@ -786,15 +784,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 })
             });
 
-
-            //TODO: remove on prod
-
-            page.on('console', consoleObj => {
-                // if (consoleObj.text().includes('[ainfo]')) {
-                //     console.log(consoleObj.text().replace('[ainfo]', ''))
-                // }
-            });
-
+            //calculate student grades
             obj.students = await page.evaluate(
                 async (arr_assignmentIDs, obj, TEMPLATE_STUDENT_URL, date_dueDate, arr_obj_students, downloadCode, obj_studentEmail) => {
                     //import bottleneck from script tag
@@ -826,11 +816,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         };
                     }
 
-                    //limits to one student for testing
-                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); //TODO: Delete this for prod
+                    // limits to one student for testing
+                    // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); // Delete this for prod
 
-                    //limits to first student
-                    // arr_obj_students = [arr_obj_students[0]]; //TODO: Delete this for prod
+                    // limits to first student
+                    // arr_obj_students = [arr_obj_students[0]]; // Delete this for prod
 
                     console.info('fetching student pages', arr_obj_students);
 
@@ -1209,7 +1199,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }
             if (downloadOptions.includes('code')) {
                 // console.info(util.inspect(classObj, false, null, true /* enable colors */));
-                writeQueue.push(writeStudentCodes(classObj));
+                writeQueue.push(writeStudentCodes(classObj, true));
+            }
+            if (downloadOptions.includes('history')) {
+                writeQueue.push(writeStudentCodes(classObj, false));
             }
             await Promise.all(writeQueue).catch(err => {
                 reje(err);
@@ -1219,7 +1212,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
     }
 
     async function writeStudentGrades(classObj) {
-        return new Promise((re, reje) => {
+        return new Promise(async (re, reje) => {
             let {date_dueDate} = sessionData;
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
@@ -1285,25 +1278,18 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
 
-            ensureDirectoryExistence(outPath);
-            fs.writeFile(outPath, csvContent, function (err) {
-                if (err) {
-                    reje('failed');
-                    return console.log(err);
-                }
-                re(classObj.teacherName + '_P' + classObj.classNum);
-            })
+            await writeFileAsync(outPath, csvContent).then(resultS=>re(classObj.teacherName + '_P' + classObj.classNum)).catch(errors=>reje(errors));
+            re('aaaaa');
         })
     }
 
-    async function writeStudentCodes(classObj) {
+    async function writeStudentCodes(classObj, justMostRecent) {
         return new Promise(async (resolve, reject) => {
             let {arr_assignments} = sessionData;
             let {teacherName, classNum} = classObj;
-            let outPath = `${__dirname}/out/code/${teacherName}_P${classNum}/`;
+            let outPath = `${__dirname}/out/${justMostRecent?'code':'code_history'}/${teacherName}_P${classNum}/`;
 
-            //TODO: Temporary fix to place files of different assigments in different folders
-            if (1 === 1) {
+            if (justMostRecent) {
                 let writeQueue = [];
                 classObj.students.forEach(studentObj => {
                     let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}_${studentObj.id}`;
@@ -1335,7 +1321,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 archive.pipe(outFile);
 
                 classObj.students.forEach(studentObj => {
-                    let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}`;
+                    let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}_${studentObj.id}`;
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
                             if (submissionObject.code !== null) {
@@ -1379,7 +1365,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function loginCodeHS(pg) {
         return new Promise(async (resolve, reject) => {
-            // resolve('assume credentials are correct'); //TODO: remove on prod
+            // resolve('assume credentials are correct'); //remove on prod
             let warningsLength;
             let teacherID;
             try {
@@ -1431,6 +1417,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeFileAsync(path, content) {
         return new Promise((resolve, reject) => {
+            if(path.includes(':')){
+                // if there are more than one ':', directories get messed up on windows
+                path = path.replaceAll(':', '--');
+            }
+            console.info(`${os.EOL}${path}`);
             ensureDirectoryExistence(path);
             fs.writeFile(path, content, function (err) {
                 if (err) {
