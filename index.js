@@ -534,7 +534,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             spinner.text = `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Writing files...`)}`;
 
             await writeClass(classObj);
-            spinner.succeed(`${chalk.bold(`${sessionData.outDirectory}/~/${classObj.teacherName + '_P' + classObj.classNum}`)}`);
+            spinner.succeed(chalk.bold(path.join(sessionData.outDirectory, '----temp----',classObj.teacherName + '_P' + classObj.classNum).replace('----temp----', '~')));
             a(Date.now());
         })
     }
@@ -564,49 +564,53 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }
 
             let boolean_useCache = true;
-            let {rebuildCache: boolean_buildCache} = sessionData;
-            if (typeof boolean_buildCache !== "boolean") errorExit('settings.js invalid');
-
-            // console.info('build cache ? ', boolean_buildCache);
-            if (boolean_buildCache) {
-                await buildCache();
+            let boolean_buildCache = false;
+            let {rebuildCache: forceCache} = sessionData;
+            if (typeof forceCache !== "boolean") {
+                errorExit('settings.js invalid');
             }
+
 
             await pathExists(path.join(cached_modulePath, 'index.html')).then(success => {
                 //use cache
-                url_sectionAllModule = `file:${path.join(cached_modulePath, 'index.html')}`;
+                if(forceCache){
+                    boolean_useCache = false;
+                    boolean_buildCache = true;
+                }else{
+                    url_sectionAllModule = `file:${path.join(cached_modulePath, 'index.html')}`;
+                }
             }).catch(err => {
-                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
                 boolean_useCache = false;
                 boolean_buildCache = true;
             });
-
-            if (boolean_buildCache && !sessionData.rebuildCache) {
-                await buildCache();
-            }
-
-            async function buildCache() {
-                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Building Cache...`);
-                let bodyHTML = await page.evaluate(() => document.body.innerHTML);
-                await writeFileAsync(path.join(cached_modulePath, 'index.html'), bodyHTML);
-            }
 
             let pageGoOptions = {
                 waitUntil: 'networkidle2',
                 timeout: 0
             };
             // console.info(url_sectionAllModule);
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs)`);
             await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
                 if (errObj.name !== 'TimeoutError') {
-                    console.info('yikes');
-                    console.info(errObj);
+                    console.info(os.EOL + chalk.bold.red('Unknown error: ', errObj));
+                    console.info(chalk.bold.yellow('Please open an issue in this ' + terminalLink('repo', 'https://github.com/e-zhang09/CodeHS-HWCrawler')));
+                    process.exit();
                 }
             });
             await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
 
-            let arr_assignmentsCopy = arr_assignments.slice();
+            if (boolean_buildCache) {
+                if(forceCache){
+                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Rebuilding Cache... (May take up to 5 minutes)`);
+                }else{
+                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
+                }
+                let bodyHTML = await page.evaluate(() => document.body.innerHTML);
+                await writeFileAsync(path.join(cached_modulePath, 'index.html'), bodyHTML);
+            }
 
-            // await sleep(15000);
+            // duplicate assignments
+            let arr_assignmentsCopy = arr_assignments.slice();
 
             page.on('console', consoleObj => {
                 // Remove on prod, info is more or less for debug only
@@ -928,39 +932,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             }
                                         }
 
-                                        // function formatParams(params) {
-                                        //     return "?" + Object
-                                        //         .keys(params)
-                                        //         .map(function (key) {
-                                        //             return key + "=" + encodeURIComponent(params[key])
-                                        //         })
-                                        //         .join("&")
-                                        // }
-
-                                        // function getCurrHistory() {
-                                        //     return new Promise(function (r, j) {
-                                        //         let historyRequest = new XMLHttpRequest();
-                                        //         historyRequest.onload = function () {
-                                        //             r(this.responseText);
-                                        //         };
-                                        //         let queryParams = {
-                                        //             student_assignment_id: studentAssignmentID,
-                                        //             method: 'get_grading_history'
-                                        //         };
-                                        //         historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
-                                        //         historyRequest.send();
-                                        //     });
-                                        // }
-                                        //
-                                        // let responseTxt = await getCurrHistory();
-                                        // // console.info('curr history response Txt', responseTxt);
-                                        // let responseObject = JSON.parse('' + responseTxt);
-                                        // let currentGrade = responseObject['current_status'];
-                                        // // console.info(currentGrade);
-                                        // let pointsAwarded = '' + currentGrade['score'];
-                                        // if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
-                                        // let maxPoints = currentGrade['out_of'] + '';
-
                                         // get time worked
                                         let selectionField = document.getElementById('assignment-submission-select');
 
@@ -1073,8 +1044,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             beforeDue = runningTotalSeconds;
                                         }
 
-                                        // await sleep(500000);
-
                                         function removeFormattingCharacters(str) {
                                             return str.replace(/(\\r\\n|\\n|\\r|\\t)/g, ' ').replace(/ {2,}/g, '');
                                         }
@@ -1116,18 +1085,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             numberOfSessions: numSesh
                                         };
 
-
                                         res(1);
                                     };
-                                    // console.info(studentObject.id);
-                                    // console.info(obj.classId);
-                                    // console.info(key);
-                                    // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+
                                     xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                                    // console.info('[info] stuUrl', String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                     xhr.responseType = "document";
                                     xhr.send();
-                                    // console.info('XHR Sent', key);
                                 })
                             });
                             return Promise.all(allTasks);
@@ -1174,10 +1137,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         studentObject.timeSpentTotal = totalTimeWorked;
 
                         studentObject.totalPoints = Math.round(totalPoints / numExercises * 10 * 100) / 100;
-
-                        // console.info('[ainfo]', '');
-                        // console.info('[ainfo]', JSON.stringify(studentObject, null, 4));
-                        // console.info('[ainfo]', '');
                     }));
 
                     return arr_obj_students;
@@ -1188,10 +1147,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students, downloadOptions.includes('code'), obj_studentEmail
             );
 
-            // await sleep(100000);
-
             await page.close();
-            // console.info('done obj', obj);
             resolve('done at ' + Date.now());
             //BOTTOM OF FUNCTION
         })
@@ -1205,7 +1161,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 writeQueue.push(writeStudentGrades(classObj));
             }
             if (downloadOptions.includes('code')) {
-                // console.info(util.inspect(classObj, false, null, true /* enable colors */));
                 writeQueue.push(writeStudentCodes(classObj, true));
             }
             if (downloadOptions.includes('history')) {
@@ -1405,6 +1360,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 await pg.close();
             } catch (e) {
+                if(e.toString().includes('net::ERR_NAME_NOT_RESOLVED')){
+                    console.log(chalk.bold.red(os.EOL + 'Are you connected to the internet?'+os.EOL + 'Perhaps there is a DNS issue.'));
+                    process.exit();
+                }
                 reject(-1);
             }
             if (warningsLength === 0) {
@@ -1431,6 +1390,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 //replace all colon but the first colon in the meantime.
                 path = path.substring(0, path.indexOf(':') + 1) + path.substring(path.indexOf(':') + 1).replace(/:/g, '--');
             }
+            // test path
             // console.info(`${os.EOL}${path}`);
             ensureDirectoryExistence(path);
             fs.writeFile(path, content, function (err) {
