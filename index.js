@@ -534,7 +534,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             spinner.text = `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Writing files...`)}`;
 
             await writeClass(classObj);
-            spinner.succeed(chalk.bold(path.join(sessionData.outDirectory, '----temp----',classObj.teacherName + '_P' + classObj.classNum).replace('----temp----', '~')));
+            spinner.succeed(chalk.bold(path.join(sessionData.outDirectory, '----temp----', classObj.teacherName + '_P' + classObj.classNum).replace('----temp----', '~')));
             a(Date.now());
         })
     }
@@ -567,16 +567,16 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             let boolean_buildCache = false;
             let {rebuildCache: forceCache} = sessionData;
             if (typeof forceCache !== "boolean") {
-                errorExit('settings.js invalid');
+                errorExit('settings.js \'rebuildCache\'invalid, not a boolean');
             }
 
 
             await pathExists(path.join(cached_modulePath, 'index.html')).then(success => {
                 //use cache
-                if(forceCache){
+                if (forceCache) {
                     boolean_useCache = false;
                     boolean_buildCache = true;
-                }else{
+                } else {
                     url_sectionAllModule = `file:${path.join(cached_modulePath, 'index.html')}`;
                 }
             }).catch(err => {
@@ -600,9 +600,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
 
             if (boolean_buildCache) {
-                if(forceCache){
+                if (forceCache) {
                     spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Rebuilding Cache... (May take up to 5 minutes)`);
-                }else{
+                } else {
                     spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
                 }
                 let bodyHTML = await page.evaluate(() => document.body.innerHTML);
@@ -1044,10 +1044,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             beforeDue = runningTotalSeconds;
                                         }
 
-                                        function removeFormattingCharacters(str) {
-                                            return str.replace(/(\\r\\n|\\n|\\r|\\t)/g, ' ').replace(/ {2,}/g, '');
-                                        }
-
                                         function getSnapshotsAsync() {
                                             return new Promise(function (resolve2, reject2) {
                                                 let xmlhr = new XMLHttpRequest();
@@ -1248,7 +1244,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeStudentCodes(classObj, justMostRecent) {
         return new Promise(async (resolve, reject) => {
-            let {arr_assignments, outDirectory} = sessionData;
+            let {arr_assignments, outDirectory, rmFormatChars} = sessionData;
+            if (typeof rmFormatChars !== 'boolean') {
+                errorExit('settings.js \'rmFormatChars\' invalid, not a boolean');
+            }
             let {teacherName, classNum} = classObj;
             let outPath = path.join(outDirectory, justMostRecent ? 'code' : 'code_history', `${teacherName}_P${classNum}`);
 
@@ -1262,7 +1261,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                             let folderPath = path.join(outPath, assignmentName.replace(/ /g, '_'));
                             let codes = studentObj.assignments[assignmentIDs + ''].studentCodes;
                             if (codes.length > 0 && codes[0].code !== null) {
-                                writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), codes[0].code));
+                                if (rmFormatChars) {
+                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), removeFormattingCharacters(codes[0].code)));
+                                } else {
+                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), codes[0].code));
+                                }
                             }
                         }
                     });
@@ -1289,7 +1292,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
                             if (submissionObject.code !== null) {
-                                archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
+                                if(rmFormatChars){
+                                    archive.append(removeFormattingCharacters(submissionObject.code), {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
+                                }else{
+                                    archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
+                                }
                             }
                         })
                     });
@@ -1360,8 +1367,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 await pg.close();
             } catch (e) {
-                if(e.toString().includes('net::ERR_NAME_NOT_RESOLVED')){
-                    console.log(chalk.bold.red(os.EOL + 'Are you connected to the internet?'+os.EOL + 'Perhaps there is a DNS issue.'));
+                if (e.toString().includes('net::ERR_NAME_NOT_RESOLVED')) {
+                    console.log(chalk.bold.red(os.EOL + 'Are you connected to the internet?' + os.EOL + 'Perhaps there is a DNS issue.'));
                     process.exit();
                 }
                 reject(-1);
@@ -1415,6 +1422,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
     function errorExit(error) {
         console.log(chalk.red.bold("\t" + error));
         process.exit();
+    }
+
+    function removeFormattingCharacters(str) {
+        return str.replace(/(\\r\\n|\\n|\\r|\\t)/g, ' ').replace(/ {2,}/g, '');
     }
 })();
 
