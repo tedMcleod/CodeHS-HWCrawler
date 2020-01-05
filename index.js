@@ -1225,7 +1225,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
-                outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
+                outPath += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
             });
             outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
             headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time On Assignment');
@@ -1296,7 +1296,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         let assignmentName = studentObj.assignments[assignmentIDs + ''].problemName;
                         if (!assignmentName.includes('--Problem Removed--')) {
-                            let folderPath = `${outPath}${assignmentName.replace(/ /g, '_')}`;
+                            let folderPath = `${outPath}${safePathComponent(assignmentName.replace(/ /g, '_'))}`;
                             let codes = studentObj.assignments[assignmentIDs + ''].studentCodes;
                             if (codes.length > 0 && codes[0].code !== null) {
                                 writeQueue.push(writeFileAsync(`${folderPath}/${studentIdentifier}.js`, codes[0].code));
@@ -1308,7 +1308,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 resolve(1);
             } else {
                 arr_assignments.forEach(assignmentName => {
-                    outPath += assignmentName.toString().replaceAll(' ', '-') + ' ';
+                    outPath += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
                 });
                 outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
                 ensureDirectoryExistence(outPath);
@@ -1337,6 +1337,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 archive.on('error', (err) => reject(err));
             }
         });
+    }
+
+    function safePathComponent(path) {
+        return path.replace(/[<>:"//\\\|\?\*]/g,'');
     }
 
     function doneSetupExit() {
