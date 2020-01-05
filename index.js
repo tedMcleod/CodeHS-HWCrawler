@@ -23,7 +23,8 @@ try {
     process.exit(0);
 }
 
-let sessionData = {rebuildCache: false},
+// load settings
+let sessionData = require('./settings.js'),
     arr_objs_classes = [];
 
 let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjRN.getDate(),
@@ -94,7 +95,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function savedCredsExist() {
         try {
-            return fs.existsSync(path.join(__dirname, '/secrets/creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
+            return fs.existsSync(path.join(__dirname, 'secrets', 'creds.json')) ? require('./secrets/creds.json').method != null && require('./secrets/creds.json').email : false;
         } catch (err) {
             return false;
         }
@@ -158,8 +159,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             const page = await browser.newPage();
 
             await loginCodeHS(page).then(async suc => {
-                if (!fs.existsSync(path.join(__dirname, '/secrets/teacher.json'))) {
-                    await writeFileAsync(__dirname + '/secrets/teacher.json', JSON.stringify({teacherID: suc}));
+                if (!fs.existsSync(path.join(__dirname, 'secrets', 'teacher.json'))) {
+                    await writeFileAsync(path.join(__dirname, 'secrets', 'teacher.json'), JSON.stringify({teacherID: suc}));
                 }
                 spinner.succeed(`${chalk.bold('Login credentials valid')}`);
             }).catch(err => {
@@ -284,7 +285,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             //finally, write finalized email/password to file
 
-            await writeFileAsync(__dirname + '/secrets/creds.json', JSON.stringify({
+            await writeFileAsync(path.join(__dirname, 'secrets', 'creds.json'), JSON.stringify({
                 method: method,
                 email: email,
                 password: password
@@ -314,7 +315,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     function savedSectionsIDExist() {
         try {
-            return fs.existsSync(path.join(__dirname, '/secrets/sections.json'));
+            return fs.existsSync(path.join(__dirname, 'secrets', 'sections.json'));
         } catch (err) {
             return false;
         }
@@ -330,7 +331,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
         const pg = await browser.newPage();
         let teacherID;
 
-        if (fs.existsSync(path.join(__dirname, '/secrets/teacher.json')) && require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
+        if (fs.existsSync(path.join(__dirname, 'secrets', 'teacher.json')) && require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
             teacherID = require('./secrets/teacher.json').teacherID;
         } else {
 
@@ -378,7 +379,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
         });
 
         // console.info(sections);
-        await writeFileAsync(__dirname + '/secrets/sections.json', JSON.stringify(sections));
+        await writeFileAsync(path.join(__dirname, 'secrets', 'sections.json'), JSON.stringify(sections));
 
         sessionData.sections = sections;
 
@@ -533,7 +534,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             spinner.text = `${chalk.bold(`[${classObj.teacherName + '_P' + classObj.classNum}] Writing files...`)}`;
 
             await writeClass(classObj);
-            spinner.succeed(`${chalk.bold(`${__dirname}/out/~/${classObj.teacherName + '_P' + classObj.classNum}`)}`);
+            spinner.succeed(chalk.bold(path.join(sessionData.outDirectory, '----temp----', classObj.teacherName + '_P' + classObj.classNum).replace('----temp----', '~')));
             a(Date.now());
         })
     }
@@ -549,7 +550,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             await page.setExtraHTTPHeaders({
                 'accept-language': 'en-US,en;q=0.8'
             });
-            let cached_modulePath = __dirname + '/cached/' + obj.sectionId + '/' + obj.classId;
+            let cached_modulePath = path.join(__dirname, 'cached', obj.sectionId + '', obj.classId + '');
             let url_sectionAllModule = format('https://codehs.com/lms/assignments/{0}/section/{1}/progress/module/0', obj.sectionId, obj.classId);
 
             async function pathExists(path) {
@@ -564,12 +565,21 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             let boolean_useCache = true;
             let boolean_buildCache = false;
+            let {rebuildCache: forceCache} = sessionData;
+            if (typeof forceCache !== "boolean") {
+                errorExit('settings.js \'rebuildCache\'invalid, not a boolean');
+            }
 
-            await pathExists(cached_modulePath + '/index.html').then(success => {
+
+            await pathExists(path.join(cached_modulePath, 'index.html')).then(success => {
                 //use cache
-                url_sectionAllModule = `file:${cached_modulePath}/index.html`;
+                if (forceCache) {
+                    boolean_useCache = false;
+                    boolean_buildCache = true;
+                } else {
+                    url_sectionAllModule = `file:${path.join(cached_modulePath, 'index.html')}`;
+                }
             }).catch(err => {
-                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
                 boolean_useCache = false;
                 boolean_buildCache = true;
             });
@@ -579,23 +589,28 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 timeout: 0
             };
             // console.info(url_sectionAllModule);
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs)`);
             await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
                 if (errObj.name !== 'TimeoutError') {
-                    console.info('yikes');
-                    console.info(errObj);
+                    console.info(os.EOL + chalk.bold.red('Unknown error: ', errObj));
+                    console.info(chalk.bold.yellow('Please open an issue in this ' + terminalLink('repo', 'https://github.com/e-zhang09/CodeHS-HWCrawler')));
+                    process.exit();
                 }
             });
             await page.waitForSelector('#activity-progress-table', {visible: true, timeout: 0});
-            // console.info('build cache ? ', boolean_buildCache);
+
             if (boolean_buildCache) {
-                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Building Cache...`);
+                if (forceCache) {
+                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Rebuilding Cache... (May take up to 5 minutes)`);
+                } else {
+                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
+                }
                 let bodyHTML = await page.evaluate(() => document.body.innerHTML);
-                await writeFileAsync(cached_modulePath + '/index.html', bodyHTML);
+                await writeFileAsync(path.join(cached_modulePath, 'index.html'), bodyHTML);
             }
 
+            // duplicate assignments
             let arr_assignmentsCopy = arr_assignments.slice();
-
-            // await sleep(15000);
 
             page.on('console', consoleObj => {
                 // Remove on prod, info is more or less for debug only
@@ -757,10 +772,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }, links.rosterPage, obj);
             if (boolean_useCache) rosterPage.close();
 
-            // page.on('console', consoleObj => console.log(consoleObj.text()));
-            // let bodyHTML = await page.evaluate(() => document.body.innerHTML);
-            // await writeFileAsync('./out/test/index.html', bodyHTML);
-
             for (let i = 0; i < arr_assignmentIDs.length; i++) {
                 let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
                 arr_assignmentIDs[i] = temp_split[6];
@@ -773,11 +784,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Calculating Student Grades...`);
 
             //attach bottleneckJS to limit network calls
-            await pathExists(__dirname + '/node_modules/bottleneck/es5.js').then(async suc => {
-                await page.addScriptTag({path: __dirname + '/node_modules/bottleneck/es5.js'});
+            await pathExists(path.join(__dirname, 'node_modules', 'bottleneck', 'es5.js')).then(async suc => {
+                await page.addScriptTag({path: path.join(__dirname, 'node_modules', 'bottleneck', 'es5.js')});
             }).catch(async err => {
-                await pathExists(__dirname + '/../../node_modules/bottleneck/es5.js').then(async suc => {
-                    await page.addScriptTag({path: __dirname + '/../../node_modules/bottleneck/es5.js'});
+                await pathExists(path.join(__dirname, '..', '..', 'node_modules', 'bottleneck', 'es5.js')).then(async suc => {
+                    await page.addScriptTag({path: path.join(__dirname, '..', '..', 'node_modules', 'bottleneck', 'es5.js')});
                 }).catch(err => {
                     console.info(chalk.bold.red('Could not find the \'bottleneck\' module'));
                     process.exit();
@@ -921,39 +932,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             }
                                         }
 
-                                        // function formatParams(params) {
-                                        //     return "?" + Object
-                                        //         .keys(params)
-                                        //         .map(function (key) {
-                                        //             return key + "=" + encodeURIComponent(params[key])
-                                        //         })
-                                        //         .join("&")
-                                        // }
-
-                                        // function getCurrHistory() {
-                                        //     return new Promise(function (r, j) {
-                                        //         let historyRequest = new XMLHttpRequest();
-                                        //         historyRequest.onload = function () {
-                                        //             r(this.responseText);
-                                        //         };
-                                        //         let queryParams = {
-                                        //             student_assignment_id: studentAssignmentID,
-                                        //             method: 'get_grading_history'
-                                        //         };
-                                        //         historyRequest.open("GET", 'https://codehs.com/lms/ajax/get_grading_history' + formatParams(queryParams));
-                                        //         historyRequest.send();
-                                        //     });
-                                        // }
-                                        //
-                                        // let responseTxt = await getCurrHistory();
-                                        // // console.info('curr history response Txt', responseTxt);
-                                        // let responseObject = JSON.parse('' + responseTxt);
-                                        // let currentGrade = responseObject['current_status'];
-                                        // // console.info(currentGrade);
-                                        // let pointsAwarded = '' + currentGrade['score'];
-                                        // if (pointsAwarded.includes('-')) pointsAwarded = '0'; //not graded
-                                        // let maxPoints = currentGrade['out_of'] + '';
-
                                         // get time worked
                                         let selectionField = document.getElementById('assignment-submission-select');
 
@@ -1066,12 +1044,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             beforeDue = runningTotalSeconds;
                                         }
 
-                                        // await sleep(500000);
-
-                                        function removeFormattingCharacters(str) {
-                                            return str.replace(/(\\r\\n|\\n|\\r|\\t)/g, ' ').replace(/ {2,}/g, '');
-                                        }
-
                                         function getSnapshotsAsync() {
                                             return new Promise(function (resolve2, reject2) {
                                                 let xmlhr = new XMLHttpRequest();
@@ -1109,18 +1081,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             numberOfSessions: numSesh
                                         };
 
-
                                         res(1);
                                     };
-                                    // console.info(studentObject.id);
-                                    // console.info(obj.classId);
-                                    // console.info(key);
-                                    // console.info(String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
+
                                     xhr.open("GET", String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
-                                    // console.info('[info] stuUrl', String.format(TEMPLATE_STUDENT_URL, studentObject.id, obj.classId, key));
                                     xhr.responseType = "document";
                                     xhr.send();
-                                    // console.info('XHR Sent', key);
                                 })
                             });
                             return Promise.all(allTasks);
@@ -1167,10 +1133,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         studentObject.timeSpentTotal = totalTimeWorked;
 
                         studentObject.totalPoints = Math.round(totalPoints / numExercises * 10 * 100) / 100;
-
-                        // console.info('[ainfo]', '');
-                        // console.info('[ainfo]', JSON.stringify(studentObject, null, 4));
-                        // console.info('[ainfo]', '');
                     }));
 
                     return arr_obj_students;
@@ -1181,10 +1143,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 }, arr_assignmentIDs, obj, links.studentURL, date_dueDate, arr_obj_students, downloadOptions.includes('code'), obj_studentEmail
             );
 
-            // await sleep(100000);
-
             await page.close();
-            // console.info('done obj', obj);
             resolve('done at ' + Date.now());
             //BOTTOM OF FUNCTION
         })
@@ -1198,7 +1157,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 writeQueue.push(writeStudentGrades(classObj));
             }
             if (downloadOptions.includes('code')) {
-                // console.info(util.inspect(classObj, false, null, true /* enable colors */));
                 writeQueue.push(writeStudentCodes(classObj, true));
             }
             if (downloadOptions.includes('history')) {
@@ -1213,21 +1171,22 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeStudentGrades(classObj) {
         return new Promise(async (re, reje) => {
-            let {date_dueDate} = sessionData;
+            let {date_dueDate, outDirectory} = sessionData;
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
 
-            let outPath = __dirname + '/out/grades/' + classObj.teacherName + '_P' + classObj.classNum + '/';
+            let outPath = path.join(outDirectory, 'grades', `${classObj.teacherName}_P${classObj.classNum}`);
 
             //sessionData.arr_assignments is unreliable because actual assignment list may be changed
             // console.info(classObj.students[0].assignments);
+            let assignmentsStr = '';
             Object.keys(classObj.students[0].assignments).forEach(assignmentKey => {
                 let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
                 outPath += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
             });
-            outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
+            outPath = path.join(outPath, assignmentsStr).trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
             headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time On Assignment');
             content_rows.push(headers);
             classObj.students.forEach(studentObj => {
@@ -1278,16 +1237,19 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
 
-            await writeFileAsync(outPath, csvContent).then(resultS=>re(classObj.teacherName + '_P' + classObj.classNum)).catch(errors=>reje(errors));
+            await writeFileAsync(outPath, csvContent).then(resultS => re(classObj.teacherName + '_P' + classObj.classNum)).catch(errors => reje(errors));
             re('aaaaa');
         })
     }
 
     async function writeStudentCodes(classObj, justMostRecent) {
         return new Promise(async (resolve, reject) => {
-            let {arr_assignments} = sessionData;
+            let {arr_assignments, outDirectory, rmFormatChars} = sessionData;
+            if (typeof rmFormatChars !== 'boolean') {
+                errorExit('settings.js \'rmFormatChars\' invalid, not a boolean');
+            }
             let {teacherName, classNum} = classObj;
-            let outPath = `${__dirname}/out/${justMostRecent?'code':'code_history'}/${teacherName}_P${classNum}/`;
+            let outPath = path.join(outDirectory, justMostRecent ? 'code' : 'code_history', `${teacherName}_P${classNum}`);
 
             if (justMostRecent) {
                 let writeQueue = [];
@@ -1296,10 +1258,14 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         let assignmentName = studentObj.assignments[assignmentIDs + ''].problemName;
                         if (!assignmentName.includes('--Problem Removed--')) {
-                            let folderPath = `${outPath}${safePathComponent(assignmentName.replace(/ /g, '_'))}`;
+                            let folderPath = path.join(outPath, safePathComponent(assignmentName.replace(/ /g, '_')));
                             let codes = studentObj.assignments[assignmentIDs + ''].studentCodes;
                             if (codes.length > 0 && codes[0].code !== null) {
-                                writeQueue.push(writeFileAsync(`${folderPath}/${studentIdentifier}.js`, codes[0].code));
+                                if (rmFormatChars) {
+                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), removeFormattingCharacters(codes[0].code)));
+                                } else {
+                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), codes[0].code));
+                                }
                             }
                         }
                     });
@@ -1307,10 +1273,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 await Promise.all(writeQueue).catch(err => reject(err));
                 resolve(1);
             } else {
+                let assignmentsString = '';
                 arr_assignments.forEach(assignmentName => {
-                    outPath += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
+                    assignmentsString += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
                 });
-                outPath = outPath.trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
+                outPath = path.join(outPath, assignmentsString).trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.zip';
                 ensureDirectoryExistence(outPath);
 
                 let outFile = fs.createWriteStream(outPath);
@@ -1325,7 +1292,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                         studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
                             if (submissionObject.code !== null) {
-                                archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
+                                if(rmFormatChars){
+                                    archive.append(removeFormattingCharacters(submissionObject.code), {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
+                                }else{
+                                    archive.append(submissionObject.code, {name: `${studentIdentifier}_${encodeURIComponent(submissionObject.editTime)}.js`});
+                                }
                             }
                         })
                     });
@@ -1344,7 +1315,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
     }
 
     function doneSetupExit() {
-        console.info(`That\'s alright, ${chalk.bold('npm start legacy_index.js')} to run again!`);
+        console.info(`That\'s alright, ${chalk.bold('codehs_grades or npm start index.js')} to run again!`);
         process.exit();
     }
 
@@ -1400,6 +1371,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 await pg.close();
             } catch (e) {
+                if (e.toString().includes('net::ERR_NAME_NOT_RESOLVED')) {
+                    console.log(chalk.bold.red(os.EOL + 'Are you connected to the internet?' + os.EOL + 'Perhaps there is a DNS issue.'));
+                    process.exit();
+                }
                 reject(-1);
             }
             if (warningsLength === 0) {
@@ -1421,11 +1396,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeFileAsync(path, content) {
         return new Promise((resolve, reject) => {
-            if(path.indexOf(':') && path.lastIndexOf(':') !== path.indexOf(':')){
+            if (path.indexOf(':') && path.lastIndexOf(':') !== path.indexOf(':')) {
                 //colons (:) may affect the directory resolutions of OSes differently...
                 //replace all colon but the first colon in the meantime.
                 path = path.substring(0, path.indexOf(':') + 1) + path.substring(path.indexOf(':') + 1).replace(/:/g, '--');
             }
+            // test path
             // console.info(`${os.EOL}${path}`);
             ensureDirectoryExistence(path);
             fs.writeFile(path, content, function (err) {
@@ -1445,6 +1421,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
         }
         ensureDirectoryExistence(dirname);
         fs.mkdirSync(dirname);
+    }
+
+    function errorExit(error) {
+        console.log(chalk.red.bold("\t" + error));
+        process.exit();
+    }
+
+    function removeFormattingCharacters(str) {
+        return str.replace(/(\\r\\n|\\n|\\r|\\t)/g, ' ').replace(/ {2,}/g, '');
     }
 })();
 

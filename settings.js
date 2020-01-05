@@ -1,6 +1,10 @@
+const path = require('path');
+
 module.exports = {
     /* General Settings */
-    rebuildCache: false, // force the cache to rebuild
+    rebuildCache: false, // refresh assignment IDs?
 
-    //TODO: Add toggles that aren't necessary for main prompts
+    /* Output Settings */
+    rmFormatChars: false, // remove strings like \t, \n, and \r in students' code?
+    outDirectory: path.join(__dirname, 'out'), // __dirname refers to the path to this file
 };
