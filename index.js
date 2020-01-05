@@ -1184,7 +1184,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
-                outPath += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
+                assignmentsStr += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
             });
             outPath = path.join(outPath, assignmentsStr).trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
             headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time On Assignment');
