@@ -936,7 +936,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         let selectionField = document.getElementById('assignment-submission-select');
 
                                         let submitted = false;
-                                        let late = false;
+                                        let late = true;
                                         if (selectionField != null) {
                                             submitted = true;
                                             let submissions = selectionField.getElementsByTagName('option');
@@ -954,8 +954,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 if (submissions[i].innerText.includes('p.m.')) {
                                                     date_submissionDate.addHours(12);
                                                 }
-                                                if (date_submissionDate > date_dueDate) {
-                                                    late = true;
+                                                if (date_submissionDate < date_dueDate) {
+                                                    late = false;
                                                 }
                                             }
                                         }
