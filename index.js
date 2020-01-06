@@ -1099,34 +1099,28 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         let totalTimeWorked = 0;
                         let totalPoints = 0;
                         let arr_assignmentsKeys = Object.keys(assignments);
-                        let isAllSubmitted = true;
                         arr_assignmentsKeys.forEach(key => {
                             totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
-                            let {problemStatus} = assignments[key];
-                            if (problemStatus.includes('Not Submitted') || problemStatus.includes('Unopened')) {
-                                isAllSubmitted = false;
-                            }
                         });
 
                         let numExercises = arr_assignmentsKeys.length;
-                        if (totalTimeWorked >= 45 || isAllSubmitted) {
-                            //award full points to each exercise
-                            arr_assignmentsKeys.forEach(key => {
+                        arr_assignmentsKeys.forEach(key => {
+                            let {timeWorkedTotal} = assignments[key];
+                            let {problemStatus} = assignments[key];
+                            let isSubmitted = !problemStatus.includes('Not Submitted') && !problemStatus.includes('Unopened');
+                            if (timeWorkedTotal >= 45 / numExercises || isSubmitted) {
                                 assignments[key].pointsAwarded = 1;
-                                totalPoints += assignments[key].pointsAwarded;
-                            });
-                        } else {
-                            arr_assignmentsKeys.forEach(key => {
-                                let {timeWorkedTotal} = assignments[key];
-                                if (timeWorkedTotal >= 45 / numExercises) {
-                                    assignments[key].pointsAwarded = 1;
-                                } else if (timeWorkedTotal >= 45 / (numExercises * 3)) {
-                                    assignments[key].pointsAwarded = Math.round(timeWorkedTotal / (45 / numExercises) * 100) / 100;
-                                } else {
-                                    assignments[key].pointsAwarded = 0;
-                                }
-                                totalPoints += assignments[key].pointsAwarded;
-                            });
+                            } else if (timeWorkedTotal >= 45 / (numExercises * 3)) {
+                                assignments[key].pointsAwarded = Math.round(timeWorkedTotal / (45 / numExercises) * 100) / 100;
+                            } else {
+                                assignments[key].pointsAwarded = 0;
+                            }
+                            totalPoints += assignments[key].pointsAwarded;
+                        });
+
+                        if (totalTimeWorked >= 45) {
+                            //award full points to the full assignment
+                            totalPoints = numExercises;
                         }
 
                         //append total total time worked to student
