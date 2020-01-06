@@ -589,7 +589,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 timeout: 0
             };
             // console.info(url_sectionAllModule);
-            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs)`);
+            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs from cache)`);
             await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
                 if (errObj.name !== 'TimeoutError') {
                     console.info(os.EOL + chalk.bold.red('Unknown error: ', errObj));
@@ -936,7 +936,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         let selectionField = document.getElementById('assignment-submission-select');
 
                                         let submitted = false;
-                                        let late = false;
+                                        let late = true;
                                         if (selectionField != null) {
                                             submitted = true;
                                             let submissions = selectionField.getElementsByTagName('option');
@@ -954,8 +954,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 if (submissions[i].innerText.includes('p.m.')) {
                                                     date_submissionDate.addHours(12);
                                                 }
-                                                if (date_submissionDate > date_dueDate) {
-                                                    late = true;
+                                                if (date_submissionDate < date_dueDate) {
+                                                    late = false;
                                                 }
                                             }
                                         }
@@ -1072,7 +1072,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             firstTryTime: firstTryTime,
                                             timeWorkedBeforeDue: beforeDue / 60,
                                             timeWorkedTotal: runningTotalSeconds / 60,
-                                            onTimeStatus: submitted ? (late ? 'late' : 'on time') : 'not submitted',
+                                            onTimeStatus: 'not calculated',
+                                            // isSubmitted: submitted, favoring the not-not-submitted or not-unopened method
+                                            isLate: late,
                                             problemStatus: problemStatus,
                                             pointsAwarded: 0,
                                             maxPoints: 1,
@@ -1093,6 +1095,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         });
 
                         //calculate points to award for each exercise
+                        //calculate on time status for each exercise
                         console.info(studentObject);
                         let {assignments} = studentObject;
 
@@ -1105,7 +1108,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                         let numExercises = arr_assignmentsKeys.length;
                         arr_assignmentsKeys.forEach(key => {
-                            let {timeWorkedTotal} = assignments[key];
+                            let {timeWorkedTotal, timeWorkedBeforeDue} = assignments[key];
                             let {problemStatus} = assignments[key];
                             let isSubmitted = !problemStatus.includes('Not Submitted') && !problemStatus.includes('Unopened');
                             if (timeWorkedTotal >= 45 / numExercises || isSubmitted) {
@@ -1116,6 +1119,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                 assignments[key].pointsAwarded = 0;
                             }
                             totalPoints += assignments[key].pointsAwarded;
+
+                            // on-time-status calcs start here
+                            if(!isSubmitted && timeWorkedTotal < 45 / (numExercises * 3)){
+                                assignments[key].onTimeStatus = 'missing';
+                            }else if(!assignments[key].isLate || timeWorkedBeforeDue >= 45 / (numExercises * 3)){
+                                assignments[key].onTimeStatus = 'on time';
+                            }else{
+                                assignments[key].onTimeStatus = 'late';
+                            }
                         });
 
                         if (totalTimeWorked >= 45) {
@@ -1194,8 +1206,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     return len > 0 ? new Array(len).join(chr || '0') + this : this;
                 };
 
-                let overAllOnTime = true;
-                let started = false;
+                let allMissing = true;
+                let isOnTime = false;
 
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     studentRow.push(studentObj.assignments[assignmentIDs].problemName);
@@ -1211,12 +1223,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
-                    if (!studentObj.assignments[assignmentIDs].onTimeStatus.includes('on time')) {
-                        overAllOnTime = false;
+                    if (studentObj.assignments[assignmentIDs].onTimeStatus.includes('on time')) {
+                        allMissing = false;
+                        isOnTime = true;
                     }
-                    if (!studentObj.assignments[assignmentIDs].onTimeStatus.includes('not submitted')) {
-                        started = true;
+
+                    if(studentObj.assignments[assignmentIDs].onTimeStatus.includes('late')) {
+                        allMissing = false;
                     }
+
                     studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
                     studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
                     studentRow.push(studentObj.assignments[assignmentIDs].numberOfVersions);
@@ -1225,7 +1240,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 studentRow.push(studentObj.totalPoints);
                 studentRow.push(10);
-                studentRow.push(overAllOnTime ? 'on time' : (started ? 'late' : 'not started'));
+                studentRow.push(allMissing ? 'missing' : (isOnTime ? 'on time' : 'late'));
                 studentRow.push(studentObj.timeSpentTotal);
                 content_rows.push(studentRow);
             });
