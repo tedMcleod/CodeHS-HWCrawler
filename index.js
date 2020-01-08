@@ -879,15 +879,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             res(1);
                                         }
                                         startedText = startedText.trim().substring(11).trim();
-                                        let date_startDate = new Date(startedText.substring(0, startedText.length - 4));
-                                        //attach date 'hours' modifier
-                                        Date.prototype.addHours = function (h) {
-                                            this.setTime(this.getTime() + (h * 60 * 60 * 1000));
-                                            return this;
-                                        };
-                                        if (startedText.includes('p.m.')) {
-                                            date_startDate.addHours(12);
+                                        startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM');
+                                        if (startedText.indexOf(':') === -1) {
+                                            let spc = startedText.lastIndexOf(' ');
+                                            startedText = startedText.substring(0, spc) + ":00" + startedText.substring(spc);
                                         }
+                                        let date_startDate = new Date(startedText);
                                         // console.info('raw start text', startedText);
                                         // console.info('start date object', date_startDate);
                                         let year = date_startDate.getFullYear();
@@ -941,19 +938,17 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             submitted = true;
                                             let submissions = selectionField.getElementsByTagName('option');
                                             for (let i = 0; i < submissions.length; i++) {
-                                                let date_submissionDate = new Date(submissions[i].innerText.substring(0, submissions[i].innerText.length - 4));
-                                                date_submissionDate.setFullYear(2020);
-                                                if (date_submissionDate > new Date()) {
-                                                    date_submissionDate.setFullYear(2019)
+                                                let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM');
+                                                if (subDateTxt.indexOf(':') === -1) {
+                                                    let spc = subDateTxt.lastIndexOf(' ');
+                                                    subDateTxt = subDateTxt.substring(0, spc) + ":00" + subDateTxt.substring(spc);
                                                 }
-                                                //attach date 'hours' modifier
-                                                Date.prototype.addHours = function (h) {
-                                                    this.setTime(this.getTime() + (h * 60 * 60 * 1000));
-                                                    return this;
-                                                };
-                                                if (submissions[i].innerText.includes('p.m.')) {
-                                                    date_submissionDate.addHours(12);
+                                                let date_submissionDate = new Date(subDateTxt);
+                                                let subYr = date_startDate.getFullYear();
+                                                if (date_submissionDate.getMonth() < date_startDate.getMonth()) {
+                                                    subYr++;
                                                 }
+                                                date_submissionDate.setFullYear(subYr);
                                                 if (date_submissionDate < date_dueDate) {
                                                     late = false;
                                                 }
