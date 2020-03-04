@@ -555,11 +555,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             async function pathExists(path) {
                 return new Promise((resolve1, reject1) => {
-                    if (fs.existsSync(path)) {
+                    fs.access(path, fs.F_OK, (err) =>{
+                        if (err){
+                            reject1(false);
+                        }
                         resolve1(true);
-                    } else {
-                        reject1(false);
-                    }
+                    });
                 });
             }
 
@@ -567,9 +568,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             let boolean_buildCache = false;
             let {rebuildCache: forceCache} = sessionData;
             if (typeof forceCache !== "boolean") {
-                errorExit('settings.js \'rebuildCache\'invalid, not a boolean');
+                errorExit('settings.js \'rebuildCache\' invalid, not a boolean');
             }
-
 
             await pathExists(path.join(cached_modulePath, 'index.html')).then(success => {
                 //use cache
@@ -588,8 +588,14 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 waitUntil: 'networkidle2',
                 timeout: 0
             };
-            // console.info(url_sectionAllModule);
-            spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs from cache)`);
+
+            console.info('boolean use cache', boolean_useCache);
+            console.info('boolean build cache', boolean_buildCache);
+            if(!boolean_useCache && boolean_buildCache){
+                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
+            }else{
+                spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs from cache)`);
+            }
             await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
                 if (errObj.name !== 'TimeoutError') {
                     console.info(os.EOL + chalk.bold.red('Unknown error: ', errObj));
@@ -602,8 +608,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             if (boolean_buildCache) {
                 if (forceCache) {
                     spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Rebuilding Cache... (May take up to 5 minutes)`);
-                } else {
-                    spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (First run may take up to 5 minutes)`);
                 }
                 let bodyHTML = await page.evaluate(() => document.body.innerHTML);
                 await writeFileAsync(path.join(cached_modulePath, 'index.html'), bodyHTML);
