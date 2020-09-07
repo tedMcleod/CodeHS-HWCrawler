@@ -395,6 +395,13 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
         return new Promise(async (resolve, reject) => {
             const response = await prompts([
                     {
+	                    type: 'text',
+	                    name: 'assignment_name',
+	                    message: 'Enter the name of the assignment',
+	                    inital: 'untitled',
+	                    validate: val => val.length > 0 ? true : 'Name cannot be blank!'
+                	},
+                    {
                         type: 'list',
                         name: 'arr_assignments',
                         message: `Enter exercise names (separated by ${chalk.bold(',')})`,
@@ -424,6 +431,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             sessionData['date_dueDate'] = response['date_dueDate'];
             sessionData['arr_assignments'] = response['arr_assignments'];
             sessionData['arr_classes'] = response['arr_classes'];
+            sessionData['assignment_name'] = response['assignment_name'];
 
             resolve('i');
 
@@ -1176,7 +1184,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function writeStudentGrades(classObj) {
         return new Promise(async (re, reje) => {
-            let {date_dueDate, outDirectory} = sessionData;
+            let {date_dueDate, outDirectory, assignment_name} = sessionData;
             let content_rows = [];
             let headers = ['Name', 'Period', 'E-mail'];
 
@@ -1184,14 +1192,14 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             //sessionData.arr_assignments is unreliable because actual assignment list may be changed
             // console.info(classObj.students[0].assignments);
-            let assignmentsStr = '';
+            //let assignmentsStr = '';
             Object.keys(classObj.students[0].assignments).forEach(assignmentKey => {
-                let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
+                //let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
                 headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
-                assignmentsStr += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + ' ');
+                //assignmentsStr += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + '_');
             });
-            outPath = path.join(outPath, assignmentsStr).trim().replaceAll(' ', '_') + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
+            outPath = path.join(outPath, assignment_name).trim() + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
             headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time On Assignment');
             content_rows.push(headers);
             classObj.students.forEach(studentObj => {
