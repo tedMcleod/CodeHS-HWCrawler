@@ -897,8 +897,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             startedText = startedText.substring(0, spc) + ":00" + startedText.substring(spc);
                                         }
                                         let date_startDate = new Date(startedText);
-                                        // console.info('raw start text', startedText);
-                                        // console.info('start date object', date_startDate);
+                                        //console.info('[ainfo] start time text', startedText);
+                                        //console.info('[ainfo] date_startDate.toString()', date_startDate.toString());
+                                        //console.log('raw start text', startedText);
+                                        //console.info('start date object', date_startDate);
                                         let year = date_startDate.getFullYear();
                                         let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
                                         let day = date_startDate.getDate().toString().padStart(2, '0');
@@ -908,6 +910,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             minute: '2-digit'
                                         });
 
+                                        //console.info('[ainfo] start date object (local)', date_startDate.toString());
                                         //get problem status
                                         let messages = document.getElementById('status-message').children;
                                         let problemStatus;
@@ -946,9 +949,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         let submitted = false;
                                         let late = true;
+                                        //console.info('[ainfo] date_dueDate', date_dueDate);
+                                        let dueDateObj = new Date(date_dueDate);
                                         if (selectionField != null) {
                                             submitted = true;
                                             let submissions = selectionField.getElementsByTagName('option');
+                                            //console.info('[ainfo] submissions.length', submissions.length);
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM');
                                                 if (subDateTxt.indexOf(':') === -1) {
@@ -961,7 +967,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     subYr++;
                                                 }
                                                 date_submissionDate.setFullYear(subYr);
-                                                if (date_submissionDate < date_dueDate) {
+                                                let timeDiff = dueDateObj.getTime() - date_submissionDate.getTime();
+                                                if (timeDiff >= 0) {
                                                     late = false;
                                                 }
                                             }
@@ -1026,12 +1033,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     console.info('pushError', pushError);
                                                 }
 
-                                                if (!beforeDue && date_editDate > date_dueDate) {
+                                                if (!beforeDue && date_editDate.getTime() > dueDateObj.getTime()) {
                                                     beforeDue = runningTotalSeconds;
-                                                    return;
+                                                    //return; // why stop adding up time - we need to know late time too...
                                                 }
 
-                                                let deltaTime = (previousDate - date_editDate) / 1000; //in seconds
+                                                let deltaTime = (previousDate.getTime() - date_editDate.getTime()) / 1000; //in seconds
                                                 if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
                                                     numSesh++;
                                                 } else {
@@ -1063,7 +1070,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                         }
                                                     }
                                                 };
-                                                xmlhr.open("POST", "https://codehs.com/editor/ajax/get_snapshots", true);
+                                                // request seems to have changed from get_snapshots to get_code_history
+                                                //xmlhr.open("POST", "https://codehs.com/editor/ajax/get_snapshots", true);
+                                                xmlhr.open("POST", "https://codehs.com/editor/ajax/get_code_history", true);
                                                 xmlhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
                                                 xmlhr.setRequestHeader('x-requested-with', 'XMLHttpRequest');
                                                 xmlhr.setRequestHeader('x-csrftoken', csrfToken);
@@ -1218,7 +1227,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     studentRow.push(studentObj.assignments[assignmentIDs].problemName);
-                    let d = date_dueDate;
+                    let d = new Date(date_dueDate);
                     studentRow.push([(d.getMonth() + 1).padLeft(),
                             d.getDate().padLeft(),
                             d.getFullYear()].join('/') + ' ' +
