@@ -350,32 +350,40 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
         // make this part optional (could be manual) b/c not everyone has same naming formats
         let sections = await pg.evaluate(() => {
-            let tmp_arr_secs = document.getElementsByClassName('teachercourse-header');
-
+            let sectionList = document.getElementsByClassName('js-sections-menu dropdown-menu sections-dropdown')[0].children;
+            let courses = {};
             let sections = {};
+            let classesObj = {};
+            for (let i = 1; i < sectionList.length; i++) {
+                let listItem = sectionList[i];
+                let sectionLink = listItem.getElementsByClassName('compact teacher-section-link')[0];
+                let sectionName = sectionLink.getElementsByClassName('left')[0].innerHTML;
+                let sectionPeriod = sectionName.substring(1, sectionName.indexOf(' '));
+                let sectionHrefSplit = sectionLink.href.toString().split('/');
+                let sectionId = sectionHrefSplit[sectionHrefSplit.length - 1];
+                let hrefQuestion = sectionId.indexOf('?');
+                if (hrefQuestion != -1) sectionId = sectionId.substring(0, hrefQuestion);
 
-            for (let i = 0; i < tmp_arr_secs.length; i++) {
-                let container = tmp_arr_secs[i].getElementsByClassName('course-title')[0];
-
-                let name = container.innerHTML.toString().trim().substring(0, container.innerHTML.toString().trim().indexOf(' '));
-                // console.info(name);
-                let tmp_id_split = container.href.toString().split('/');
-                let teacherURL = tmp_id_split[tmp_id_split.length - 1];
-                let selectors = document.querySelectorAll('[data-teacher-course-id="' + teacherURL + '"]');
-                let teacherObj = {
-                    id: teacherURL
-                };
-                let classesObj = {};
-                for (let j = 0; j < selectors.length; j++) {
-                    let name = selectors[j].getAttribute('data-dropdown-section-name');
-                    let classNum = name.substring(1, name.indexOf(' '));
-                    classesObj[classNum + ''] = selectors[j].getAttribute('data-class-id');
+                let sectionInfo = document.getElementsByClassName('class-list-item wrap class_' + sectionId)[0];
+                let courseId = sectionInfo.getAttribute('data-teacher-course-id').toString();
+                let coursesDropdown = document.getElementsByClassName('js-courses-menu dropdown-menu sections-dropdown')[0];
+                let courseName;
+                for (let c = 1; c < coursesDropdown.children.length; c++) {
+                    if (coursesDropdown.children[c].getAttribute('href').toString().indexOf(courseId) != -1) {
+                        courseName = coursesDropdown.children[c].getElementsByClassName('left my-course-option-title')[0].innerHTML;
+                        break;
+                    }
                 }
-                teacherObj.classes = classesObj;
-                sections[name + ''] = teacherObj;
+
+
+                if (!courses[courseName]) {
+                    courses[courseName] = {'id': courseId, 'classes': {}};
+                }
+                courses[courseName]['classes'][sectionPeriod + ''] = sectionId;
+
             }
 
-            return sections;
+            return courses;
         });
 
         // console.info(sections);
