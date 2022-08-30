@@ -1015,7 +1015,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             }
 
                                             numVersions = editContainers.length;
-                                            for (let i = 0; i < editContainers.length; i++) {
+                                            for (let i = editContainers.length - 1; i >= 0 ; i--) {
                                                 let dateStr = editContainers[i].getElementsByClassName('date')[0].innerHTML;
                                                 let timeStr = editContainers[i].getElementsByClassName('time')[0].innerHTML;
 
