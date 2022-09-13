@@ -990,7 +990,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         //Time spent on assignment
                                         let runningTotalSeconds = 0;
-                                        let beforeDue;
+                                        let onTimeSeconds = 0;
+                                        // let beforeDue;
 
                                         let numVersions = 0;
                                         let numSesh = 1;
@@ -1041,16 +1042,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     console.info('pushError', pushError);
                                                 }
 
-                                                if (!beforeDue && date_editDate.getTime() > dueDateObj.getTime()) {
-                                                    beforeDue = runningTotalSeconds;
-                                                    //return; // why stop adding up time - we need to know late time too...
-                                                }
-
                                                 let deltaTime = (previousDate.getTime() - date_editDate.getTime()) / 1000; //in seconds
                                                 if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
                                                     numSesh++;
                                                 } else {
                                                     runningTotalSeconds += deltaTime;
+                                                    if (date_editDate.getTime() <= dueDateObj.getTime()) {
+                                                        onTimeSeconds += deltaTime;
+                                                        //return; // why stop adding up time - we need to know late time too...
+                                                    }
                                                 }
 
                                                 previousDate = date_editDate; //update prev to rn
@@ -1062,9 +1062,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             //ignore
                                         });
 
-                                        if (!beforeDue) {
-                                            beforeDue = runningTotalSeconds;
-                                        }
+                                        // if (!beforeDue) {
+                                        //     beforeDue = runningTotalSeconds;
+                                        // }
 
                                         function getSnapshotsAsync() {
                                             return new Promise(function (resolve2, reject2) {
@@ -1094,7 +1094,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             problemName: problemName,
                                             firstTryDate: firstTryDate,
                                             firstTryTime: firstTryTime,
-                                            timeWorkedBeforeDue: beforeDue / 60,
+                                            timeWorkedBeforeDue: onTimeSeconds / 60,
                                             timeWorkedTotal: runningTotalSeconds / 60,
                                             onTimeStatus: 'not calculated',
                                             // isSubmitted: submitted, favoring the not-not-submitted or not-unopened method
