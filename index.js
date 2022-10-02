@@ -728,10 +728,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 return [arr_IDs, arr_obj_students];
             }, arr_assignmentsCopy);
-            
-            // arr_assignmentIDs, arr_obj_students should be populated now
-            //console.info('[ainfo] arr_assignmentIDs', JSON.stringify(arr_assignmentIDs, null, 4));
-            //console.info('[ainfo] arr_obj_students', JSON.stringify(arr_obj_students, null, 4));
 
             let rosterPage;
             if (boolean_useCache) {
@@ -795,16 +791,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 return obj_studentEmail;
             }, links.rosterPage, obj);
 
-            //console.info('[ainfo] obj_studentEmail: ' + JSON.stringify(obj_studentEmail, null, 4));
-
             if (boolean_useCache) rosterPage.close();
 
             for (let i = 0; i < arr_assignmentIDs.length; i++) {
                 let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
                 arr_assignmentIDs[i] = temp_split[6];
             }
-
-            //console.info('[ainfo] arr_assignmentIDs: ' + JSON.stringify(arr_assignmentIDs, null, 4));
 
 
             //need to move to codehs.com for cors
@@ -863,10 +855,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     // limits to first student
                     // arr_obj_students = [arr_obj_students[0]]; // Delete this for prod
 
-                    //console.info('[ainfo] fetching student pages' + JSON.stringify(arr_obj_students, null, 4));
                     // fetch date from students' page
                     await Promise.all(arr_obj_students.map(async (studentObject) => {
-                        // console.info('processing', studentObject);
                         await limiter.schedule(() => {
                             const allTasks = arr_assignmentIDs.map(async (key) => {
                                 return new Promise((res, rej) => {
@@ -927,8 +917,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                             res(1);
                                         }
-                                        
-                                        //console.info('[ainfo] startedText after request = ' + startedText);
 
                                         startedText = startedText.trim();
                                         let onIndex = startedText.indexOf('on');
@@ -938,12 +926,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             let spc = startedText.lastIndexOf(' ');
                                             startedText = startedText.substring(0, spc) + ":00" + startedText.substring(spc);
                                         }
-                                        //console.info('[ainfo] formatted startedText = ' + startedText);
                                         let date_startDate = new Date(startedText);
-                                        //console.info('[ainfo] start time text', startedText);
-                                        //console.info('[ainfo] date_startDate.toString()', date_startDate.toString());
-                                        //console.log('raw start text', startedText);
-                                        //console.info('start date object', date_startDate);
                                         let year = date_startDate.getFullYear();
                                         let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
                                         let day = date_startDate.getDate().toString().padStart(2, '0');
@@ -953,26 +936,20 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             minute: '2-digit'
                                         });
 
-                                        //console.info('[ainfo] start date object (local)', date_startDate.toString());
                                         //get problem status
-
                                         //https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481117717&method=get_student_assignment_status
                                         let problemStatus;
                                         await getStatusAsync().then(statusData => {
                                             problemStatus = statusData.css_class
                                         });
 
-                                        //console.info('[ainfo] problemStatus = ' + problemStatus);
-
                                         // get submissions
                                         let selectionField = document.getElementById('assignment-submission-select');
 
                                         let submittedOnTime = false;
-                                        //console.info('[ainfo] date_dueDate', date_dueDate);
                                         let dueDateObj = new Date(date_dueDate);
                                         if (selectionField) {
                                             let submissions = selectionField.getElementsByTagName('option');
-                                            //console.info('[ainfo] submissions.length', submissions.length);
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM');
                                                 if (subDateTxt.indexOf(':') === -1) {
@@ -986,7 +963,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 }
                                                 date_submissionDate.setFullYear(subYr);
                                                 let timeDiff = dueDateObj.getTime() - date_submissionDate.getTime();
-                                                //console.info('[ainfo] due date: ' + dueDateObj.toISOString() + " submission date: " + date_submissionDate.toISOString() + " has time diff: " + timeDiff);
                                                 if (timeDiff >= 0) {
                                                     submittedOnTime = true;
                                                 }
@@ -1002,7 +978,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         //holds all of a student's code
                                         let arr_obj_studentCodes = [];
-                                        
                                         await getCodeHistoryAsync().then(historyData => {
                                             function unescape(htmlStr) {
                                                return htmlStr.replaceAll('&quot;','"').replaceAll('&apos;','').replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&nbsp;','\n').replaceAll('&iexcl;','¡').replaceAll('&cent;','¢').replaceAll('&pound;','£').replaceAll('&curren;','¤').replaceAll('&yen;','¥').replaceAll('&brvbar;','¦').replaceAll('&sect;','§').replaceAll('&uml;','¨').replaceAll('&copy;','©').replaceAll('&ordf;','ª').replaceAll('&laquo;','«').replaceAll('&not;','¬').replaceAll('&shy;','\u00AD').replaceAll('&reg;','®').replaceAll('&macr;','¯').replaceAll('&deg;','°').replaceAll('&plusmn;','±').replaceAll('&sup2;','²').replaceAll('&sup3;','³').replaceAll('&acute;','´').replaceAll('&micro;','µ').replaceAll('&para;','¶').replaceAll('&middot;','·').replaceAll('&cedil;','¸').replaceAll('&sup1;','¹').replaceAll('&ordm;','º').replaceAll('&raquo;','»').replaceAll('&frac14;','¼').replaceAll('&frac12;','½').replaceAll('&frac34;','¾').replaceAll('&iquest;','¿').replaceAll('&times;','×').replaceAll('&divide;','÷').replaceAll('&Agrave;','À').replaceAll('&Aacute;','Á').replaceAll('&Acirc;','Â').replaceAll('&Atilde;','Ã').replaceAll('&Auml;','Ä').replaceAll('&Aring;','Å').replaceAll('&AElig;','Æ').replaceAll('&Ccedil;','Ç').replaceAll('&Egrave;','È').replaceAll('&Eacute;','É').replaceAll('&Ecirc;','Ê').replaceAll('&Euml;','Ë').replaceAll('&Igrave;','Ì').replaceAll('&Iacute;','Í').replaceAll('&Icirc;','Î').replaceAll('&Iuml;','Ï').replaceAll('&ETH;','Ð').replaceAll('&Ntilde;','Ñ').replaceAll('&Ograve;','Ò').replaceAll('&Oacute;','Ó').replaceAll('&Ocirc;','Ô').replaceAll('&Otilde;','Õ').replaceAll('&Ouml;','Ö').replaceAll('&Oslash;','Ø').replaceAll('&Ugrave;','Ù').replaceAll('&Uacute;','Ú').replaceAll('&Ucirc;','Û').replaceAll('&Uuml;','Ü').replaceAll('&Yacute;','Ý').replaceAll('&THORN;','Þ').replaceAll('&szlig;','ß').replaceAll('&agrave;','à').replaceAll('&aacute;','á').replaceAll('&acirc;','â').replaceAll('&atilde;','ã').replaceAll('&auml;','ä').replaceAll('&aring;','å').replaceAll('&aelig;','æ').replaceAll('&ccedil;','ç').replaceAll('&egrave;','è').replaceAll('&eacute;','é').replaceAll('&ecirc;','ê').replaceAll('&euml;','ë').replaceAll('&igrave;','ì').replaceAll('&iacute;','í').replaceAll('&icirc;','î').replaceAll('&iuml;','ï').replaceAll('&eth;','ð').replaceAll('&ntilde;','ñ').replaceAll('&ograve;','ò').replaceAll('&oacute;','ó').replaceAll('&ocirc;','ô').replaceAll('&otilde;','õ').replaceAll('&ouml;','ö').replaceAll('&oslash;','ø').replaceAll('&ugrave;','ù').replaceAll('&uacute;','ú').replaceAll('&ucirc;','û').replaceAll('&uuml;','ü').replaceAll('&yacute;','ý').replaceAll('&thorn;','þ').replaceAll('&yuml;','ÿ');   
@@ -1030,22 +1005,23 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                             // get work time and sessions
                                             numVersions = versions.length;
-                                            let prevDate = versions[0].date;
-                                            let dt = 0;
-                                            for (let i = 0; i < versions.length; i++) {
-                                                let v = versions[i];
-                                                let deltaTime = (v.date.getTime() - prevDate.getTime()) / 1000; //in seconds
-                                                //console.info('[ainfo] time diff: ' + deltaTime);
-                                                if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
-                                                    numSesh++;
-                                                } else {
-                                                    runningTotalSeconds += deltaTime;
-                                                    if (v.date.getTime() <= dueDateObj.getTime()) {
-                                                        onTimeSeconds += deltaTime;
+                                            if (numVersions > 0) {
+                                                let prevDate = versions[0].date;
+                                                for (let i = 1; i < versions.length; i++) {
+                                                    let v = versions[i];
+                                                    let deltaTime = (v.date.getTime() - prevDate.getTime()) / 1000; //in seconds
+                                                    if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
+                                                        numSesh++;
+                                                    } else {
+                                                        runningTotalSeconds += deltaTime;
+                                                        if (v.date.getTime() <= dueDateObj.getTime()) {
+                                                            onTimeSeconds += deltaTime;
+                                                        }
                                                     }
+                                                    prevDate = v.date; //update prev to rn
                                                 }
-                                                prevDate = v.date; //update prev to rn
                                             }
+                                            
 
                                             if (!String.prototype.splice) {
                                                 String.prototype.splice = function (idx, rem, str) {
@@ -1053,7 +1029,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 };
                                             }
                                         }).catch(err => {
-                                            console.error(err);
+                                            console.info('[ainfo]' + err.message);
                                             //ignore
                                         });
 
@@ -1133,7 +1109,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         }
 
                                         studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
-                                        //console.info('[ainfo] student email', studentObject.email);
                                         studentObject.assignments['' + key] = {
                                             problemName: problemName,
                                             firstTryDate: firstTryDate,
