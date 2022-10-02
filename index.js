@@ -634,9 +634,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
             page.on('console', consoleObj => {
                 // Remove on prod, info is more or less for debug only
-                // if (consoleObj.text().includes('[ainfo]')) {
-                //     console.log(consoleObj.text().replace('[ainfo]', ''))
-                // }
+                if (consoleObj.text().includes('[ainfo]')) {
+                    console.log(consoleObj.text().replace('[ainfo]', ''))
+                }
                 if (consoleObj.text().includes('[awarning]')) {
                     console.log(chalk.yellow.bold(consoleObj.text().replace('[awarning]', '')))
                 }
@@ -728,6 +728,10 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 return [arr_IDs, arr_obj_students];
             }, arr_assignmentsCopy);
+            
+            // arr_assignmentIDs, arr_obj_students should be populated now
+            //console.info('[ainfo] arr_assignmentIDs', JSON.stringify(arr_assignmentIDs, null, 4));
+            //console.info('[ainfo] arr_obj_students', JSON.stringify(arr_obj_students, null, 4));
 
             let rosterPage;
             if (boolean_useCache) {
@@ -790,12 +794,18 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 return obj_studentEmail;
             }, links.rosterPage, obj);
+
+            //console.info('[ainfo] obj_studentEmail: ' + JSON.stringify(obj_studentEmail, null, 4));
+
             if (boolean_useCache) rosterPage.close();
 
             for (let i = 0; i < arr_assignmentIDs.length; i++) {
                 let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
                 arr_assignmentIDs[i] = temp_split[6];
             }
+
+            //console.info('[ainfo] arr_assignmentIDs: ' + JSON.stringify(arr_assignmentIDs, null, 4));
+
 
             //need to move to codehs.com for cors
             if (boolean_useCache) await page.goto('https://www.codehs.com');
@@ -853,8 +863,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     // limits to first student
                     // arr_obj_students = [arr_obj_students[0]]; // Delete this for prod
 
-                    console.info('fetching student pages', arr_obj_students);
-
+                    //console.info('[ainfo] fetching student pages' + JSON.stringify(arr_obj_students, null, 4));
                     // fetch date from students' page
                     await Promise.all(arr_obj_students.map(async (studentObject) => {
                         // console.info('processing', studentObject);
@@ -864,17 +873,38 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                     let xhr = new XMLHttpRequest();
                                     xhr.onload = async function () {
                                         let document = this.responseXML;
-
+                                        //console.info('[ainfo] doc: ' + new XMLSerializer().serializeToString(document));
                                         //get problem name
                                         let problemName = document.title.split('|')[0].trim();
 
-                                        //get first try date/time
+                                        const parent = document.querySelector('#teacher-revision-banner');
+                                        const children = parent.querySelectorAll('span');
+                                        const span = children[1];
+                                        const dataId = span.getAttribute('data-id');
+                                        const dataCodeUserId = span.getAttribute('data-code-user-id');
+                                        const dataStudentAssignmentId = span.getAttribute('data-student-assignment-id');
+                                        const dataItemId = span.getAttribute('data-item-id');
+                                        //console.info("[ainfo] dataId = " + dataId + " dataCodeUserId = " + dataCodeUserId + " dataStudentAssignmentId = " + dataStudentAssignmentId + " dataItemId = " + dataItemId);
+
                                         let startedText;
                                         try {
-                                            startedText = document.getElementById('started-time').getElementsByClassName('msg-content')[0].getElementsByTagName('p')[0].innerText;
+                                            await getTabsAsync().then(tabs => {
+                                            function htmlToElement(html) {
+                                                    let doc = document.implementation.createHTMLDocument("Help Tab");
+                                                    let div = document.createElement('div');
+                                                    html = html.trim(); // Never return a text node of whitespace as the result
+                                                    div.innerHTML = html;
+                                                    doc.body.appendChild(div);
+                                                    return doc;
+                                                }
+                                                //console.info("[ainfo] htmlTxt = " + htmlToElement(tabs['help tab'].text));
+                                                let helpTabDoc = htmlToElement(tabs['help tab'].text);
+                                                startedText = helpTabDoc.getElementById('started-time').innerText;
+                                                //console.info('[ainfo] startedText = ' + startedText);
+                                            });
                                         } catch (err) {
                                             studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
-                                            console.info('[ainfo] email ' + studentObject.email);
+                                            //console.info('[ainfo] email ' + studentObject.email);
                                             studentObject.assignments['' + key] = {
                                                 problemName: problemName.includes('201') ? '--Problem Removed--' : problemName,
                                                 firstTryDate: '--',
@@ -886,9 +916,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 pointsAwarded: '--',
                                                 maxPoints: '--',
                                                 studentCodes: [{
-                                                    submissionTime: '--',
-                                                    code: null,
-                                                    ID: '--'
+                                                    editTime: '--',
+                                                    code: null
                                                 }],
                                                 numberOfVersions: '--',
                                                 numberOfSessions: '--'
@@ -898,12 +927,18 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                             res(1);
                                         }
-                                        startedText = startedText.trim().substring(11).trim();
-                                        startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM');
+                                        
+                                        //console.info('[ainfo] startedText after request = ' + startedText);
+
+                                        startedText = startedText.trim();
+                                        let onIndex = startedText.indexOf('on');
+                                        let dateText = startedText.substring(onIndex + 2).trim();
+                                        startedText = dateText.replace('p.m.', 'PM').replace('a.m.', 'AM');
                                         if (startedText.indexOf(':') === -1) {
                                             let spc = startedText.lastIndexOf(' ');
                                             startedText = startedText.substring(0, spc) + ":00" + startedText.substring(spc);
                                         }
+                                        //console.info('[ainfo] formatted startedText = ' + startedText);
                                         let date_startDate = new Date(startedText);
                                         //console.info('[ainfo] start time text', startedText);
                                         //console.info('[ainfo] date_startDate.toString()', date_startDate.toString());
@@ -920,47 +955,22 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         //console.info('[ainfo] start date object (local)', date_startDate.toString());
                                         //get problem status
-                                        let messages = document.getElementById('status-message').children;
+
+                                        //https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481117717&method=get_student_assignment_status
                                         let problemStatus;
-                                        for (let i = 0; i < messages.length; i++) {
-                                            if (messages[i].innerText) {
-                                                let status = messages[i].innerText;
-                                                if (status.includes(':')) {
-                                                    problemStatus = status.split(':')[1].trim();
-                                                } else {
-                                                    //example programs arent graded... i think
-                                                    problemStatus = 'Finalized';
-                                                }
-                                                break;
-                                            }
-                                        }
+                                        await getStatusAsync().then(statusData => {
+                                            problemStatus = statusData.css_class
+                                        });
 
-                                        //get student grade
-                                        let studentAssignmentID;
-                                        let arr_candidate_scripts = document.getElementsByTagName('script');
-                                        for (let i = 0; i < arr_candidate_scripts.length; i++) {
-                                            let temp_innerText = arr_candidate_scripts[i].innerText;
-                                            if (temp_innerText) {
-                                                if (temp_innerText.includes('studentAssignmentID')) {
-                                                    temp_innerText = temp_innerText.substring(
-                                                        temp_innerText.indexOf(':', temp_innerText.lastIndexOf('studentAssignmentID')) + 1).trim();
-                                                    // console.info('innerText', temp_innerText);
-                                                    studentAssignmentID = temp_innerText.split(' ')[0].substring(0, temp_innerText.indexOf(',')).trim();
-                                                    // console.info('student assignment ID', studentAssignmentID);
-                                                    break;
-                                                }
-                                            }
-                                        }
+                                        //console.info('[ainfo] problemStatus = ' + problemStatus);
 
-                                        // get time worked
+                                        // get submissions
                                         let selectionField = document.getElementById('assignment-submission-select');
 
-                                        let submitted = false;
-                                        let late = true;
+                                        let submittedOnTime = false;
                                         //console.info('[ainfo] date_dueDate', date_dueDate);
                                         let dueDateObj = new Date(date_dueDate);
-                                        if (selectionField != null) {
-                                            submitted = true;
+                                        if (selectionField) {
                                             let submissions = selectionField.getElementsByTagName('option');
                                             //console.info('[ainfo] submissions.length', submissions.length);
                                             for (let i = 0; i < submissions.length; i++) {
@@ -976,127 +986,161 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 }
                                                 date_submissionDate.setFullYear(subYr);
                                                 let timeDiff = dueDateObj.getTime() - date_submissionDate.getTime();
+                                                //console.info('[ainfo] due date: ' + dueDateObj.toISOString() + " submission date: " + date_submissionDate.toISOString() + " has time diff: " + timeDiff);
                                                 if (timeDiff >= 0) {
-                                                    late = false;
+                                                    submittedOnTime = true;
                                                 }
                                             }
                                         }
 
-                                        //get some user information from assignment document
-                                        let temp_itemUserURL = document.getElementById('print-code').href;
-                                        let temp_split = temp_itemUserURL.split('/');
-                                        let item = temp_split[5];
-                                        let user = temp_split[6];
-
                                         //Time spent on assignment
                                         let runningTotalSeconds = 0;
                                         let onTimeSeconds = 0;
-                                        // let beforeDue;
 
                                         let numVersions = 0;
                                         let numSesh = 1;
 
                                         //holds all of a student's code
                                         let arr_obj_studentCodes = [];
-                                        await getSnapshotsAsync().then(docText => {
-                                            function htmlToElement(html) {
-                                                let div = document.createElement('div');
-                                                html = html.trim(); // Never return a text node of whitespace as the result
-                                                div.innerHTML = html;
-                                                return div;
+                                        
+                                        await getCodeHistoryAsync().then(historyData => {
+                                            function unescape(htmlStr) {
+                                               return htmlStr.replaceAll('&quot;','"').replaceAll('&apos;','').replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&nbsp;','\n').replaceAll('&iexcl;','¡').replaceAll('&cent;','¢').replaceAll('&pound;','£').replaceAll('&curren;','¤').replaceAll('&yen;','¥').replaceAll('&brvbar;','¦').replaceAll('&sect;','§').replaceAll('&uml;','¨').replaceAll('&copy;','©').replaceAll('&ordf;','ª').replaceAll('&laquo;','«').replaceAll('&not;','¬').replaceAll('&shy;','\u00AD').replaceAll('&reg;','®').replaceAll('&macr;','¯').replaceAll('&deg;','°').replaceAll('&plusmn;','±').replaceAll('&sup2;','²').replaceAll('&sup3;','³').replaceAll('&acute;','´').replaceAll('&micro;','µ').replaceAll('&para;','¶').replaceAll('&middot;','·').replaceAll('&cedil;','¸').replaceAll('&sup1;','¹').replaceAll('&ordm;','º').replaceAll('&raquo;','»').replaceAll('&frac14;','¼').replaceAll('&frac12;','½').replaceAll('&frac34;','¾').replaceAll('&iquest;','¿').replaceAll('&times;','×').replaceAll('&divide;','÷').replaceAll('&Agrave;','À').replaceAll('&Aacute;','Á').replaceAll('&Acirc;','Â').replaceAll('&Atilde;','Ã').replaceAll('&Auml;','Ä').replaceAll('&Aring;','Å').replaceAll('&AElig;','Æ').replaceAll('&Ccedil;','Ç').replaceAll('&Egrave;','È').replaceAll('&Eacute;','É').replaceAll('&Ecirc;','Ê').replaceAll('&Euml;','Ë').replaceAll('&Igrave;','Ì').replaceAll('&Iacute;','Í').replaceAll('&Icirc;','Î').replaceAll('&Iuml;','Ï').replaceAll('&ETH;','Ð').replaceAll('&Ntilde;','Ñ').replaceAll('&Ograve;','Ò').replaceAll('&Oacute;','Ó').replaceAll('&Ocirc;','Ô').replaceAll('&Otilde;','Õ').replaceAll('&Ouml;','Ö').replaceAll('&Oslash;','Ø').replaceAll('&Ugrave;','Ù').replaceAll('&Uacute;','Ú').replaceAll('&Ucirc;','Û').replaceAll('&Uuml;','Ü').replaceAll('&Yacute;','Ý').replaceAll('&THORN;','Þ').replaceAll('&szlig;','ß').replaceAll('&agrave;','à').replaceAll('&aacute;','á').replaceAll('&acirc;','â').replaceAll('&atilde;','ã').replaceAll('&auml;','ä').replaceAll('&aring;','å').replaceAll('&aelig;','æ').replaceAll('&ccedil;','ç').replaceAll('&egrave;','è').replaceAll('&eacute;','é').replaceAll('&ecirc;','ê').replaceAll('&euml;','ë').replaceAll('&igrave;','ì').replaceAll('&iacute;','í').replaceAll('&icirc;','î').replaceAll('&iuml;','ï').replaceAll('&eth;','ð').replaceAll('&ntilde;','ñ').replaceAll('&ograve;','ò').replaceAll('&oacute;','ó').replaceAll('&ocirc;','ô').replaceAll('&otilde;','õ').replaceAll('&ouml;','ö').replaceAll('&oslash;','ø').replaceAll('&ugrave;','ù').replaceAll('&uacute;','ú').replaceAll('&ucirc;','û').replaceAll('&uuml;','ü').replaceAll('&yacute;','ý').replaceAll('&thorn;','þ').replaceAll('&yuml;','ÿ');   
                                             }
 
-                                            let editContainers = htmlToElement(docText).getElementsByClassName('snapshot-version');
-                                            let previousDate;
+                                            let starterCode = unescape(historyData[0].files[0].text);
+                                            let versions = [];
+                                            for (let i = 1; i < historyData.length; i++) {
+                                                let versionData = historyData[i];
+                                                let versionDate = new Date(versionData.timestamp);
+                                                let versionCode = unescape(versionData.files[0].text);
+
+                                                // data for calculating time worked
+                                                versions.push({
+                                                    date: versionDate,
+                                                    code: versionCode
+                                                });
+
+                                                // data for file writing
+                                                arr_obj_studentCodes.push({
+                                                    editTime: versionDate.toISOString(),
+                                                    code: versionCode
+                                                });
+                                            }
+
+                                            // get work time and sessions
+                                            numVersions = versions.length;
+                                            let prevDate = versions[0].date;
+                                            let dt = 0;
+                                            for (let i = 0; i < versions.length; i++) {
+                                                let v = versions[i];
+                                                let deltaTime = (v.date.getTime() - prevDate.getTime()) / 1000; //in seconds
+                                                //console.info('[ainfo] time diff: ' + deltaTime);
+                                                if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
+                                                    numSesh++;
+                                                } else {
+                                                    runningTotalSeconds += deltaTime;
+                                                    if (v.date.getTime() <= dueDateObj.getTime()) {
+                                                        onTimeSeconds += deltaTime;
+                                                    }
+                                                }
+                                                prevDate = v.date; //update prev to rn
+                                            }
 
                                             if (!String.prototype.splice) {
                                                 String.prototype.splice = function (idx, rem, str) {
                                                     return this.slice(0, idx) + str + this.slice(idx + Math.abs(rem));
                                                 };
                                             }
-
-                                            numVersions = editContainers.length;
-                                            for (let i = editContainers.length - 1; i >= 0 ; i--) {
-                                                let dateStr = editContainers[i].getElementsByClassName('date')[0].innerHTML;
-                                                let timeStr = editContainers[i].getElementsByClassName('time')[0].innerHTML;
-
-                                                if (!timeStr.includes(':')) {
-                                                    timeStr = timeStr.trim();
-                                                    timeStr = timeStr.splice(timeStr.length - 3, 0, ':00');
-                                                }
-
-                                                let combinedStr = dateStr + ' ' + timeStr;
-                                                // console.info('combinedStr', combinedStr);
-                                                let date_editDate = new Date(combinedStr);
-                                                if (!previousDate) previousDate = date_editDate;
-                                                // console.info('is nan', isNaN(+date_editDate));
-
-                                                let rawCodeObj = editContainers[i].getElementsByTagName('script')[0].text;
-                                                let code = JSON.parse(rawCodeObj)['default.js'];
-                                                try {
-                                                    arr_obj_studentCodes.push({
-                                                        editTime: date_editDate.toISOString(),
-                                                        code: code
-                                                    });
-                                                } catch (pushError) {
-                                                    console.info('pushError', pushError);
-                                                }
-
-                                                let deltaTime = (previousDate.getTime() - date_editDate.getTime()) / 1000; //in seconds
-                                                if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
-                                                    numSesh++;
-                                                } else {
-                                                    runningTotalSeconds += deltaTime;
-                                                    if (date_editDate.getTime() <= dueDateObj.getTime()) {
-                                                        onTimeSeconds += deltaTime;
-                                                        //return; // why stop adding up time - we need to know late time too...
-                                                    }
-                                                }
-
-                                                previousDate = date_editDate; //update prev to rn
-                                            }
-
-
                                         }).catch(err => {
                                             console.error(err);
                                             //ignore
                                         });
 
-                                        // if (!beforeDue) {
-                                        //     beforeDue = runningTotalSeconds;
-                                        // }
+                                        let late = submittedOnTime;
 
-                                        function getSnapshotsAsync() {
+                                        //https://codehs.com/editor/ajax/ajax_abacus_history?code_user_id=3591904&item_id=74&student_assignment_id=1481117718&viewer_id=104748&method=ajax_abacus_history
+                                        function getCodeHistoryAsync() {
                                             return new Promise(function (resolve2, reject2) {
                                                 let xmlhr = new XMLHttpRequest();
                                                 xmlhr.onreadystatechange = function () {
                                                     if (this.readyState === 4) {
                                                         if (this.status === 200) {
-                                                            resolve2(JSON.parse(this.responseText).text);
+                                                            resolve2(JSON.parse(this.responseText).history);
                                                         } else {
                                                             reject2(this.status);
                                                         }
                                                     }
                                                 };
-                                                // request seems to have changed from get_snapshots to get_code_history
-                                                //xmlhr.open("POST", "https://codehs.com/editor/ajax/get_snapshots", true);
-                                                xmlhr.open("POST", "https://codehs.com/editor/ajax/get_code_history", true);
+                                                xmlhr.open("POST", "https://codehs.com/editor/ajax/ajax_abacus_history?code_user_id=" + dataCodeUserId + "&item_id=" + dataItemId + "&student_assignment_id=" + dataStudentAssignmentId + "&viewer_id=" + dataId + "&method=ajax_abacus_history", true);
                                                 xmlhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
                                                 xmlhr.setRequestHeader('x-requested-with', 'XMLHttpRequest');
-                                                xmlhr.setRequestHeader('x-csrftoken', csrfToken);
-                                                xmlhr.send(`item=${item}&user=${user}&course=0&method=get_snapshots`);
+                                                xmlhr.setRequestHeader('x-csrftoken', getCookie('csrftoken'));
+                                                xmlhr.send();
+                                            });
+                                        }
+
+                                        function getStatusAsync() {
+                                            return new Promise(function (resolve2, reject2) {
+                                                let xmlStatus = new XMLHttpRequest();
+                                                xmlStatus.onreadystatechange = function () {
+                                                    if (this.readyState === 4) {
+                                                        if (this.status === 200) {
+                                                            resolve2(JSON.parse(this.responseText));
+                                                        } else {
+                                                            reject2(this.status);
+                                                        }
+                                                    }
+                                                };
+                                                // possible css status:
+                                                /*
+                                                    'finalized'
+                                                    'not-submitted'
+                                                    'reviewed'
+                                                    'submitted-after-review'
+                                                    'unopened'
+                                                    'submitted'
+                                                */
+                                                //https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481117717&method=get_student_assignment_status
+                                                xmlStatus.open("POST", "https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=" + dataStudentAssignmentId + "&method=get_student_assignment_status", true);
+                                                xmlStatus.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+                                                xmlStatus.setRequestHeader('x-requested-with', 'XMLHttpRequest');
+                                                xmlStatus.setRequestHeader('x-csrftoken', getCookie('csrftoken'));
+                                                xmlStatus.send();
+                                            });
+                                        }
+
+                                        //https://codehs.com/editor/ajax/batch_abacus_editor_tabs?requestData%5Bitem_id%5D=74&requestData%5Bmodule_id%5D=0&requestData%5Bcourse_id%5D=0&requestData%5Bcode_user_id%5D=3591904&requestData%5Bstudent_assignment_id%5D=1481117718&requestData%5Bresult_world%5D=&tabNames%5B%5D=overview+left+tab&tabNames%5B%5D=exercise+tab&tabNames%5B%5D=autograder+tab&tabNames%5B%5D=lms+grading+tab&tabNames%5B%5D=solution+tab&tabNames%5B%5D=video+tab&tabNames%5B%5D=help+tab&tabNames%5B%5D=download+tab&tabNames%5B%5D=about+tab&tabNames%5B%5D=teacher+tab&tabNames%5B%5D=share+tab&tabNames%5B%5D=upload+tab&method=batch_abacus_editor_tabs
+                                        function getTabsAsync() {
+                                            return new Promise(function (resolve2, reject2) {
+                                                let xmlTabs = new XMLHttpRequest();
+                                                xmlTabs.onreadystatechange = function () {
+                                                    if (this.readyState === 4) {
+                                                        if (this.status === 200) {
+                                                            console.log("restxt = ", JSON.parse(this.responseText).tabs);
+                                                            resolve2(JSON.parse(this.responseText).tabs);
+                                                        } else {
+                                                            reject2(this.status);
+                                                        }
+                                                    }
+                                                };
+                                                xmlTabs.open("POST", "https://codehs.com/editor/ajax/batch_abacus_editor_tabs?requestData%5Bitem_id%5D=" + dataItemId + "&requestData%5Bmodule_id%5D=0&requestData%5Bcourse_id%5D=0&requestData%5Bcode_user_id%5D=" + dataCodeUserId + "&requestData%5Bstudent_assignment_id%5D=" + dataStudentAssignmentId + "&requestData%5Bresult_world%5D=&tabNames%5B%5D=overview+left+tab&tabNames%5B%5D=exercise+tab&tabNames%5B%5D=autograder+tab&tabNames%5B%5D=lms+grading+tab&tabNames%5B%5D=solution+tab&tabNames%5B%5D=video+tab&tabNames%5B%5D=help+tab&tabNames%5B%5D=download+tab&tabNames%5B%5D=about+tab&tabNames%5B%5D=teacher+tab&tabNames%5B%5D=share+tab&tabNames%5B%5D=upload+tab&method=batch_abacus_editor_tabs", true);
+                                                xmlTabs.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+                                                xmlTabs.setRequestHeader('x-requested-with', 'XMLHttpRequest');
+                                                xmlTabs.setRequestHeader('x-csrftoken', getCookie('csrftoken'));
+                                                xmlTabs.send();
                                             });
                                         }
 
                                         studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
-                                        console.info('[ainfo] student email', studentObject.email);
+                                        //console.info('[ainfo] student email', studentObject.email);
                                         studentObject.assignments['' + key] = {
                                             problemName: problemName,
                                             firstTryDate: firstTryDate,
                                             firstTryTime: firstTryTime,
                                             timeWorkedBeforeDue: onTimeSeconds / 60,
                                             timeWorkedTotal: runningTotalSeconds / 60,
-                                            onTimeStatus: 'not calculated',
+                                            onTimeStatus: "not determined",
                                             // isSubmitted: submitted, favoring the not-not-submitted or not-unopened method
                                             isLate: late,
                                             problemStatus: problemStatus,
@@ -1130,11 +1174,21 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                             totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
                         });
 
+                        /*
+                        Possible problem status values:
+                            'finalized'
+                            'not-submitted'
+                            'reviewed'
+                            'submitted-after-review'
+                            'unopened'
+                            'submitted'
+                        */
+
                         let numExercises = arr_assignmentsKeys.length;
                         arr_assignmentsKeys.forEach(key => {
                             let {timeWorkedTotal, timeWorkedBeforeDue} = assignments[key];
                             let {problemStatus} = assignments[key];
-                            let isSubmitted = !problemStatus.includes('Not Submitted') && !problemStatus.includes('Unopened');
+                            let isSubmitted = !problemStatus.includes('not-submitted') && !problemStatus.includes('unopened');
                             if (timeWorkedTotal >= 45 / numExercises || isSubmitted) {
                                 assignments[key].pointsAwarded = 1;
                             } else if (timeWorkedTotal >= 45 / (numExercises * 3)) {
@@ -1265,7 +1319,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 studentRow.push(studentObj.totalPoints);
                 studentRow.push(10);
                 studentRow.push(allMissing ? 'missing' : (isOnTime ? 'on time' : 'late'));
-                studentRow.push(studentObj.timeSpentTotal);
+                studentRow.push(studentObj.timeSpentTotal.toString().minsToHHMMSS());
                 content_rows.push(studentRow);
             });
             let csvContent = content_rows.map(e => e.join(",")).join("\n");
@@ -1295,9 +1349,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                             let codes = studentObj.assignments[assignmentIDs + ''].studentCodes;
                             if (codes.length > 0 && codes[0].code !== null) {
                                 if (rmFormatChars) {
-                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), removeFormattingCharacters(codes[0].code)));
+                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), removeFormattingCharacters(codes[codes.length - 1].code)));
                                 } else {
-                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), codes[0].code));
+                                    writeQueue.push(writeFileAsync(path.join(folderPath, studentIdentifier + '.js'), codes[codes.length - 1].code));
                                 }
                             }
                         }
