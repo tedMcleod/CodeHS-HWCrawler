@@ -16,7 +16,7 @@ const prompts = require('prompts'),
     terminalLink = require('terminal-link');
 
 // set DEBUG to true to see console.info('[ainfo] ') messages
-const DEBUG = false;
+const DEBUG = true;
 let crypto, browser;
 try {
     crypto = require('crypto');
@@ -802,7 +802,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }
 
             //console.info('[ainfo] arr_assignmentIDs = ' + JSON.stringify(arr_assignmentIDs));
-            console.info('\n[ainfo] problemIdMap = ' + JSON.stringify(problemIdMap, null, 4) + "\n");
+            //console.info('\n[ainfo] problemIdMap = ' + JSON.stringify(problemIdMap, null, 4) + "\n");
             //need to move to codehs.com for cors
             if (boolean_useCache) await page.goto('https://www.codehs.com');
 
@@ -884,7 +884,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         }
 
                                         let problemName = document.title.split('|')[0].trim();
-                                        console.info('[ainfo] problemName = ' + problemName + contextDescription);
+                                        //console.info('[ainfo] problemName = ' + problemName + contextDescription);
                                         if (typeof document.querySelector !== "function") {
                                             console.error("[aerror] document.querySelector is not a function!" + contextDescription);
                                         }
@@ -981,13 +981,14 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 console.error("[aerror] startedText does not contain 'on'" + contextDescription);
                                             }
                                             //console.info('[ainfo] (2) startedText = ' + startedText);
+                                            let originalStartedText = startedText;
                                             startedText = startedText.substring(onIndex + 2).trim();
                                             //console.info('[ainfo] (3) startedText = ' + startedText);
                                             if (startedText.length === 0) {
                                                 firstTryTime = "--";
                                                 firstTryDate = "--";
                                             } else {
-                                                startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM');
+                                                startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM');
                                                 //console.info('[ainfo] (4) startedText = ' + startedText);
                                                 if (startedText.indexOf(':') === -1) {
                                                     let spc = startedText.lastIndexOf(' ');
@@ -995,6 +996,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 }
                                                 //console.info('[ainfo] (5) startedText = ' + startedText);
                                                 date_startDate = new Date(startedText);
+                                                if (isNaN(date_startDate)) {
+                                                    console.info("[ainfo] date_startDate parsed from " + startedText + " which started as: " + originalStartedText + contextDescription);
+                                                }
                                                 //console.info('[ainfo] date_startDate = ' + date_startDate);
                                                 //console.info('[ainfo] date_startDate is valid' + contextDescription);
                                                 let year = date_startDate.getFullYear();
@@ -1053,13 +1057,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             let earliestSubDate = null;
                                             let latestSubDate = null;
                                             for (let i = 0; i < submissions.length; i++) {
-                                                let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM');
+                                                let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM');
                                                 if (subDateTxt.indexOf(':') === -1) {
                                                     let spc = subDateTxt.lastIndexOf(' ');
                                                     subDateTxt = subDateTxt.substring(0, spc) + ":00" + subDateTxt.substring(spc);
                                                 }
                                                 let date_submissionDate = new Date(subDateTxt);
-                                                //console.info('[ainfo] date_submissionDate = ' + date_submissionDate);
+                                                if (isNaN(date_submissionDate)) {
+                                                    console.info('[ainfo] invalid date_submissionDate from ' + subDateTxt + " which started as: " + submissions[i].innerText + contextDescription);
+                                                }
                                                 let subYr = date_startDate.getFullYear();
                                                 if (date_submissionDate.getMonth() < date_startDate.getMonth()) {
                                                     subYr++;
@@ -1279,58 +1285,70 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                         //calculate points to award for each exercise
                         //calculate on time status for each exercise
+                        const MINUTES_REQUIRED_FOR_FULL_CREDIT = 45;
+                        const MINUTES_REQUIRED_FOR_ANY_CREDIT = MINUTES_REQUIRED_FOR_FULL_CREDIT / 3;
+                        const MAX_POINTS = 10;
+                        const LATE_CREDIT_MULTIPLIER = 0.70;
                         let {assignments} = studentObject;
-
+                        let arr_assignmentsKeys = Object.keys(assignments);
+                        let totalTimeWorkedBeforeDue = 0;
                         let totalTimeWorked = 0;
                         let totalPoints = 0;
-                        let arr_assignmentsKeys = Object.keys(assignments);
-                        arr_assignmentsKeys.forEach(key => {
-                            totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
-                        });
-
-                        /*
-                        Possible problem status values:
-                            'finalized'
-                            'not-submitted'
-                            'reviewed'
-                            'submitted-after-review'
-                            'unopened'
-                            'submitted'
-                        */
-
                         let numExercises = arr_assignmentsKeys.length;
+                        let allOnTime = true;
+                        let allMissing = true;
+                        let allSubmitted = true;
                         arr_assignmentsKeys.forEach(key => {
                             let {timeWorkedTotal, timeWorkedBeforeDue} = assignments[key];
+                            totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
+                            totalTimeWorkedBeforeDue += assignments[key].timeWorkedBeforeDue ? assignments[key].timeWorkedBeforeDue : 0;
                             let {problemStatus} = assignments[key];
                             let isSubmitted = !problemStatus.includes('not-submitted') && !problemStatus.includes('unopened');
-                            if (timeWorkedTotal >= 45 / numExercises || isSubmitted) {
-                                assignments[key].pointsAwarded = 1;
-                            } else if (timeWorkedTotal >= 45 / (numExercises * 3)) {
-                                assignments[key].pointsAwarded = Math.round(timeWorkedTotal / (45 / numExercises) * 100) / 100;
-                            } else {
-                                assignments[key].pointsAwarded = 0;
-                            }
-                            totalPoints += assignments[key].pointsAwarded;
+                            if (!isSubmitted) allSubmitted = false;
 
-                            // on-time-status calcs start here
-                            if(!isSubmitted && timeWorkedTotal < 45 / (numExercises * 3)){
+                            if (!isSubmitted && timeWorkedTotal < MINUTES_REQUIRED_FOR_ANY_CREDIT / numExercises){
                                 assignments[key].onTimeStatus = 'missing';
-                            }else if(!assignments[key].isLate || timeWorkedBeforeDue >= 45 / (numExercises * 3)){
+                                allOnTime = false;
+                            } else if (!assignments[key].isLate || timeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_FULL_CREDIT / numExercises){
                                 assignments[key].onTimeStatus = 'on time';
-                            }else{
+                                allMissing = false;
+                            } else if (timeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_ANY_CREDIT / numExercises){
+                                assignments[key].onTimeStatus = 'incomplete';
+                                allMissing = false;
+                            } else {
                                 assignments[key].onTimeStatus = 'late';
+                                allOnTime = false;
+                                allMissing = false;
                             }
                         });
 
-                        if (totalTimeWorked >= 45) {
-                            //award full points to the full assignment
-                            totalPoints = numExercises;
+                        if (allOnTime || totalTimeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_FULL_CREDIT) {
+                            totalPoints = MAX_POINTS;
+                            studentObject.onTimeStatus = 'on time';
+                        } else if (allSubmitted || totalTimeWorked >= MINUTES_REQUIRED_FOR_ANY_CREDIT) {
+                            if (allSubmitted) {
+                                totalPoints = Math.round(MAX_POINTS * LATE_CREDIT_MULTIPLIER * 100) / 100;
+                                studentObject.onTimeStatus = 'late';
+                            } else {
+                                let lateWorkTime = Math.min(totalTimeWorked, MINUTES_REQUIRED_FOR_FULL_CREDIT)  - totalTimeWorkedBeforeDue;
+                                if (lateWorkTime > 0) {
+                                    studentObject.onTimeStatus = 'late';
+                                } else {
+                                    studentObject.onTimeStatus = 'incomplete';
+                                }
+                                totalPoints = MAX_POINTS * (totalTimeWorkedBeforeDue + lateWorkTime * LATE_CREDIT_MULTIPLIER) / MINUTES_REQUIRED_FOR_FULL_CREDIT;
+                                totalPoints = Math.round(totalPoints * 100) / 100;
+                            }
+                        } else {
+                            totalPoints = 0;
+                            studentObject.onTimeStatus = 'missing';
                         }
 
                         //append total total time worked to student
                         studentObject.timeSpentTotal = totalTimeWorked;
-
-                        studentObject.totalPoints = Math.round(totalPoints / numExercises * 10 * 100) / 100;
+                        studentObject.onTimeWorkTotal = totalTimeWorkedBeforeDue;
+                        studentObject.totalPoints = totalPoints;
+                        studentObject.maxPoints = MAX_POINTS;
                     })).catch(err => {
                         console.error("[aerror] " + err.message);
                     });
@@ -1383,11 +1401,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             Object.keys(classObj.students[0].assignments).forEach(assignmentKey => {
                 //let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
-                headers.push('Problem', 'Due', 'First Try', 'First Time', 'First Submit', 'Last Submit', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
+                headers.push('Problem', 'Due', 'First Try', 'First Time', 'First Submit', 'Last Submit', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Number of Versions', 'Number of Sessions');
                 //assignmentsStr += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + '_');
             });
             outPath = path.join(outPath, assignment_name).trim() + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
-            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time On Assignment');
+            headers.push('Total Points Awarded', 'Total Points Possible', 'On Time?', 'Total Time Before Due', 'Total Time');
             content_rows.push(headers);
             classObj.students.forEach(studentObj => {
                 let studentRow = [];
@@ -1399,9 +1417,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     let len = (String(base || 10).length - String(this).length) + 1;
                     return len > 0 ? new Array(len).join(chr || '0') + this : this;
                 };
-
-                let allMissing = true;
-                let isOnTime = false;
 
                 //console.info("[ainfo] studentObject = " + JSON.stringify(studentObj, null, 4));
 
@@ -1421,30 +1436,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
-                    if (studentObj.assignments[assignmentIDs].onTimeStatus.includes('on time')) {
-                        allMissing = false;
-                        isOnTime = true;
-                    }
-
-                    if(studentObj.assignments[assignmentIDs].onTimeStatus.includes('late')) {
-                        allMissing = false;
-                    }
-
                     studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
-                    studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
                     studentRow.push(studentObj.assignments[assignmentIDs].numberOfVersions);
                     studentRow.push(studentObj.assignments[assignmentIDs].numberOfSessions);
-                    // for (let i = 0; i < studentRow.length; i++) {
-                    //     console.info("\n[ainfo] row " + i + " = " + studentRow[i]);
-                    //     if ((""+ studentRow[i]).indexOf(",") != -1) {
-                    //         console.error("[aerror] student row " + i + " contains comma: " + studentRow[i]);
-                    //     }
-                    // }
                 });
 
                 studentRow.push(studentObj.totalPoints);
-                studentRow.push(10);
-                studentRow.push(allMissing ? 'missing' : (isOnTime ? 'on time' : 'late'));
+                studentRow.push(studentObj.maxPoints);
+                studentRow.push(studentObj.onTimeStatus);
+                studentRow.push(studentObj.onTimeWorkTotal.toString().minsToHHMMSS());
                 studentRow.push(studentObj.timeSpentTotal.toString().minsToHHMMSS());
                 content_rows.push(studentRow);
             });
