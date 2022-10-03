@@ -15,6 +15,8 @@ const prompts = require('prompts'),
     os = require('os'),
     terminalLink = require('terminal-link');
 
+// set DEBUG to true to see console.info('[ainfo] ') messages
+const DEBUG = false;
 let crypto, browser;
 try {
     crypto = require('crypto');
@@ -633,8 +635,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             let arr_assignmentsCopy = arr_assignments.slice();
 
             page.on('console', consoleObj => {
-                // Remove on prod, info is more or less for debug only
-                if (consoleObj.text().includes('[ainfo]')) {
+                // if DEBUG is true, it will print console messages containing '[ainfo]'
+                if (DEBUG && consoleObj.text().includes('[ainfo]')) {
                     console.log(consoleObj.text().replace('[ainfo]', ''))
                 }
                 if (consoleObj.text().includes('[awarning]')) {
@@ -685,10 +687,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                 // console.info('[ainfo] arr_assignmentsCopy', JSON.stringify(arr_assignmentsCopy, null, 4));
                 if (arr_assignmentsCopy.length === originalLength) {
-                    console.log('[aerror]', 'The following assignments were not found: ' + JSON.stringify(arr_assignmentsCopy))
+                    console.log('[aerror]', 'None of these assignments were found: ' + JSON.stringify(arr_assignmentsCopy))
                 } else if (arr_assignmentsCopy.length !== 0) {
-                    console.log('[awarning]', 'The following assignments were not found: ' + JSON.stringify(arr_assignmentsCopy) + ', proceeding with the other problems in 5 seconds...')
-                    await sleep(5000);
+                    console.log('[aerror]', 'The following assignments were not found: ' + JSON.stringify(arr_assignmentsCopy));
                 }
 
                 let arr_obj_students = [];
@@ -792,13 +793,16 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }, links.rosterPage, obj);
 
             if (boolean_useCache) rosterPage.close();
-
+            let problemIdMap = {};
             for (let i = 0; i < arr_assignmentIDs.length; i++) {
+                let name = arr_assignmentIDs[i].name;
                 let temp_split = arr_assignmentIDs[i].url.substr(8).split('/');
                 arr_assignmentIDs[i] = temp_split[6];
+                problemIdMap[arr_assignmentIDs[i]] = name;
             }
 
-
+            //console.info('[ainfo] arr_assignmentIDs = ' + JSON.stringify(arr_assignmentIDs));
+            console.info('\n[ainfo] problemIdMap = ' + JSON.stringify(problemIdMap, null, 4) + "\n");
             //need to move to codehs.com for cors
             if (boolean_useCache) await page.goto('https://www.codehs.com');
 
@@ -834,8 +838,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         return '';
                     }
 
-                    let csrfToken = getCookie('csrftoken');
-
                     //add String.format utility
                     if (!String.format) {
                         String.format = function (format) {
@@ -853,7 +855,15 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     // arr_obj_students = arr_obj_students.splice(arr_obj_students.length - 1); // Delete this for prod
 
                     // limits to first student
-                    // arr_obj_students = [arr_obj_students[0]]; // Delete this for prod
+                    //arr_obj_students = [arr_obj_students[0]]; // Delete this for prod
+
+                    // Limits to a particular student
+                    // for (let i = 0; i < arr_obj_students.length; i++) {
+                    //     if (arr_obj_students[i].firstName === "Lily") {
+                    //         arr_obj_students = [arr_obj_students[i]];
+                    //         break;
+                    //     }
+                    // }
 
                     // fetch date from students' page
                     await Promise.all(arr_obj_students.map(async (studentObject) => {
@@ -863,23 +873,73 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                     let xhr = new XMLHttpRequest();
                                     xhr.onload = async function () {
                                         let document = this.responseXML;
+                                        let contextDescription = " [Context] problemId " + key + " for " + studentObject.firstName + " " + studentObject.lastName;
                                         //console.info('[ainfo] doc: ' + new XMLSerializer().serializeToString(document));
                                         //get problem name
-                                        let problemName = document.title.split('|')[0].trim();
+                                        //console.info("[ainfo] executing " + contextDescription);
+                                        if (document === undefined || document === null) {
+                                            console.error("[aerror] student problem page is not valid" + contextDescription);
+                                        } else if (document.title === undefined) {
+                                            console.error("[aerror] student problem page has no title: " + document.title + contextDescription);
+                                        }
 
+                                        let problemName = document.title.split('|')[0].trim();
+                                        console.info('[ainfo] problemName = ' + problemName + contextDescription);
+                                        if (typeof document.querySelector !== "function") {
+                                            console.error("[aerror] document.querySelector is not a function!" + contextDescription);
+                                        }
                                         const parent = document.querySelector('#teacher-revision-banner');
+                                        if (!parent) {
+                                            console.error("[aerror] teacher-revision-banner does not exist!" + contextDescription);
+                                        }
                                         const children = parent.querySelectorAll('span');
+                                        if (!children) {
+                                            console.error("[aerror] teacher-revision-banner has no span children!" + contextDescription);
+                                        } else if (children.length < 2) {
+                                            console.error("[aerror] teacher-revision-banner does not have at least 2 children!" + contextDescription);
+                                        }
                                         const span = children[1];
                                         const dataId = span.getAttribute('data-id');
+                                        if (dataId === undefined || dataId === null) {
+                                            console.error("[aerror] span does not have a 'data-id' attribute!" + contextDescription);
+                                        }
                                         const dataCodeUserId = span.getAttribute('data-code-user-id');
+                                        if (dataCodeUserId === undefined || dataCodeUserId === null) {
+                                            console.error("[aerror] span does not have a 'data-code-user-id' attribute!" + contextDescription);
+                                        }
                                         const dataStudentAssignmentId = span.getAttribute('data-student-assignment-id');
+                                        if (dataStudentAssignmentId === undefined || dataStudentAssignmentId === null) {
+                                            console.error("[aerror] span does not have a 'data-student-assignment-id' attribute!" + contextDescription);
+                                        }
                                         const dataItemId = span.getAttribute('data-item-id');
+                                        if (dataItemId === undefined || dataItemId === null) {
+                                            console.error("[aerror] span does not have a 'data-item-id' attribute!" + contextDescription);
+                                        }
                                         //console.info("[ainfo] dataId = " + dataId + " dataCodeUserId = " + dataCodeUserId + " dataStudentAssignmentId = " + dataStudentAssignmentId + " dataItemId = " + dataItemId);
-
                                         let startedText;
+                                        let tabDocs = {};
+
+                                        // assumes docs is an object where the value associated with each key is an html document
+                                        // will find the first element with the given id, if it is in one of the docs
+                                        // returns the element with the given id or null if none exists.
+                                        function getElementByIdInDocs(id, docs) {
+                                            for (let key in docs) {
+                                                let elem = docs[key].getElementById(id);
+                                                if (elem) {
+                                                    //console.info("[ainfo] found element with id " + id + " in docs[" + key + "]");
+                                                    return elem;
+                                                }
+                                            }
+                                            return null;
+                                        }
+
+                                        //console.info('[ainfo] getting tabs' + contextDescription);
                                         try {
                                             await getTabsAsync().then(tabs => {
-                                            function htmlToElement(html) {
+                                                function htmlToElement(html) {
+                                                    if (typeof(html) !== "string") {
+                                                        console.error("[aerror] html is not a string! - " + html + contextDescription);
+                                                    }
                                                     let doc = document.implementation.createHTMLDocument("Help Tab");
                                                     let div = document.createElement('div');
                                                     html = html.trim(); // Never return a text node of whitespace as the result
@@ -887,69 +947,111 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     doc.body.appendChild(div);
                                                     return doc;
                                                 }
-                                                //console.info("[ainfo] htmlTxt = " + htmlToElement(tabs['help tab'].text));
-                                                let helpTabDoc = htmlToElement(tabs['help tab'].text);
-                                                startedText = helpTabDoc.getElementById('started-time').innerText;
-                                                //console.info('[ainfo] startedText = ' + startedText);
+                                                //console.info('[ainfo] tabs = ' + tabs);
+                                                if (tabs === undefined || tabs === null) {
+                                                    console.error("[aerror] tabs xhr request returned " + tabs + contextDescription);
+                                                }
+                                                let tabKeys = Object.keys(tabs);
+                                                for (let i = 0; i < tabKeys.length; i++) {
+                                                    tabDocs[tabKeys[i]] = htmlToElement(tabs[tabKeys[i]].text);
+                                                }
+
+                                                let startedTimeElement = getElementByIdInDocs("started-time", tabDocs);
+                                                if (startedTimeElement === undefined || startedTimeElement === null) {
+                                                    //console.info("[ainfo] tabDocs does not have an element with id 'started-time'" + contextDescription);
+                                                } else if (startedTimeElement.innerText === undefined) {
+                                                    //console.info("[ainfo] startedTimeElement.innerText is undefined" + contextDescription);
+                                                } else {
+                                                    startedText = startedTimeElement.innerText;
+                                                }
+                                                //console.info('[ainfo] (1) startedText = ' + startedText);
                                             });
                                         } catch (err) {
-                                            studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
-                                            //console.info('[ainfo] email ' + studentObject.email);
-                                            studentObject.assignments['' + key] = {
-                                                problemName: problemName.includes('201') ? '--Problem Removed--' : problemName,
-                                                firstTryDate: '--',
-                                                firstTryTime: '--',
-                                                timeWorkedBeforeDue: '--',
-                                                timeWorkedTotal: '--',
-                                                onTimeStatus: '--',
-                                                problemStatus: 'Problem Removed',
-                                                pointsAwarded: '--',
-                                                maxPoints: '--',
-                                                studentCodes: [{
-                                                    editTime: '--',
-                                                    code: null
-                                                }],
-                                                numberOfVersions: '--',
-                                                numberOfSessions: '--'
-                                            };
-
-                                            await sleep(10000); // wait ten seconds before messing up
-
-                                            res(1);
+                                            console.error("[aerror] " + err.message + contextDescription);
                                         }
-
-                                        startedText = startedText.trim();
-                                        let onIndex = startedText.indexOf('on');
-                                        let dateText = startedText.substring(onIndex + 2).trim();
-                                        startedText = dateText.replace('p.m.', 'PM').replace('a.m.', 'AM');
-                                        if (startedText.indexOf(':') === -1) {
-                                            let spc = startedText.lastIndexOf(' ');
-                                            startedText = startedText.substring(0, spc) + ":00" + startedText.substring(spc);
+                                        //console.info('[ainfo] getting firstTryTime' + contextDescription);
+                                        let firstTryTime;
+                                        let firstTryDate;
+                                        let date_startDate;
+                                        if (startedText !== undefined) {
+                                            //console.info('[ainfo] parsing startedText' + contextDescription)
+                                            startedText = startedText.trim();
+                                            let onIndex = startedText.indexOf('on');
+                                            if (onIndex === -1) {
+                                                console.error("[aerror] startedText does not contain 'on'" + contextDescription);
+                                            }
+                                            //console.info('[ainfo] (2) startedText = ' + startedText);
+                                            startedText = startedText.substring(onIndex + 2).trim();
+                                            //console.info('[ainfo] (3) startedText = ' + startedText);
+                                            if (startedText.length === 0) {
+                                                firstTryTime = "--";
+                                                firstTryDate = "--";
+                                            } else {
+                                                startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM');
+                                                //console.info('[ainfo] (4) startedText = ' + startedText);
+                                                if (startedText.indexOf(':') === -1) {
+                                                    let spc = startedText.lastIndexOf(' ');
+                                                    startedText = startedText.substring(0, spc) + ":00" + startedText.substring(spc);
+                                                }
+                                                //console.info('[ainfo] (5) startedText = ' + startedText);
+                                                date_startDate = new Date(startedText);
+                                                //console.info('[ainfo] date_startDate = ' + date_startDate);
+                                                //console.info('[ainfo] date_startDate is valid' + contextDescription);
+                                                let year = date_startDate.getFullYear();
+                                                let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
+                                                let day = date_startDate.getDate().toString().padStart(2, '0');
+                                                firstTryDate = month + '/' + day + '/' + year;
+                                                //console.info('[ainfo] firstTryDate = ' + firstTryDate + contextDescription);
+                                                firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
+                                                    hour: '2-digit',
+                                                    minute: '2-digit'
+                                                });
+                                                //console.info('[ainfo] firstTryTime = ' + firstTryTime + contextDescription);
+                                            }
+                                        } else {
+                                            firstTryTime = "--";
+                                            firstTryDate = "--";
                                         }
-                                        let date_startDate = new Date(startedText);
-                                        let year = date_startDate.getFullYear();
-                                        let month = (1 + date_startDate.getMonth()).toString().padStart(2, '0');
-                                        let day = date_startDate.getDate().toString().padStart(2, '0');
-                                        let firstTryDate = month + '/' + day + '/' + year;
-                                        let firstTryTime = date_startDate.toLocaleTimeString(navigator.language, {
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        });
+                                        //console.info('[ainfo] firstTryTime = ' + firstTryTime + " firstTryDate = " + firstTryDate + contextDescription);
 
+                                        //console.info('[ainfo] getting problem status' + contextDescription);
                                         //get problem status
                                         //https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481117717&method=get_student_assignment_status
                                         let problemStatus;
-                                        await getStatusAsync().then(statusData => {
-                                            problemStatus = statusData.css_class
-                                        });
+                                        try {
+                                            await getStatusAsync().then(statusData => {
+                                                problemStatus = statusData.css_class
+                                            });
+                                        } catch (err) {
+                                            console.error("[aerror] " + err.message + contextDescription);
+                                        }
+                                        //console.info('[ainfo] problemStatus = ' + problemStatus + contextDescription);
 
                                         // get submissions
-                                        let selectionField = document.getElementById('assignment-submission-select');
-
+                                        let selectionField = getElementByIdInDocs("assignment-submission-select", tabDocs);
+                                        //console.info('[ainfo] selectionField = ' + selectionField + contextDescription);
                                         let submittedOnTime = false;
                                         let dueDateObj = new Date(date_dueDate);
+                                       // console.info('[ainfo] dueDateObj = ' + dueDateObj + contextDescription);
+                                        let firstSubmissionDate = "--";
+                                        let lastSubmissionDate = "--";
+                                        function getDateTimeStr(date) {
+                                            let month = date.getMonth() + 1;
+                                            let day = date.getDate();
+                                            if (day < 10) day = "0" + day;
+                                            let year = date.getFullYear();
+                                            let hour = date.getHours();
+                                            let am = hour < 12;
+                                            if (hour > 12) hour -= 12;
+                                            if (hour < 10) hour = "0" + hour;
+                                            let minute = date.getMinutes();
+                                            if (minute < 10) minute = "0" + minute;
+                                            return month + "/" + day + "/" + year + " " + hour + ":" + minute + (am ? "AM" : "PM");
+                                        }
                                         if (selectionField) {
                                             let submissions = selectionField.getElementsByTagName('option');
+                                            let earliestSubDate = null;
+                                            let latestSubDate = null;
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM');
                                                 if (subDateTxt.indexOf(':') === -1) {
@@ -957,14 +1059,22 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     subDateTxt = subDateTxt.substring(0, spc) + ":00" + subDateTxt.substring(spc);
                                                 }
                                                 let date_submissionDate = new Date(subDateTxt);
+                                                //console.info('[ainfo] date_submissionDate = ' + date_submissionDate);
                                                 let subYr = date_startDate.getFullYear();
                                                 if (date_submissionDate.getMonth() < date_startDate.getMonth()) {
                                                     subYr++;
                                                 }
                                                 date_submissionDate.setFullYear(subYr);
-                                                let timeDiff = dueDateObj.getTime() - date_submissionDate.getTime();
-                                                if (timeDiff >= 0) {
+                                                if (dueDateObj.getTime() > date_submissionDate.getTime()) {
                                                     submittedOnTime = true;
+                                                }
+                                                if (earliestSubDate == null || date_submissionDate.getTime() < earliestSubDate.getTime()) {
+                                                    earliestSubDate = date_submissionDate;
+                                                    firstSubmissionDate = getDateTimeStr(earliestSubDate);
+                                                }
+                                                if (latestSubDate == null || date_submissionDate.getTime() > latestSubDate.getTime()) {
+                                                    latestSubDate = date_submissionDate;
+                                                    lastSubmissionDate = getDateTimeStr(latestSubDate);
                                                 }
                                             }
                                         }
@@ -978,62 +1088,82 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         //holds all of a student's code
                                         let arr_obj_studentCodes = [];
-                                        await getCodeHistoryAsync().then(historyData => {
-                                            function unescape(htmlStr) {
-                                               return htmlStr.replaceAll('&quot;','"').replaceAll('&apos;','').replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&nbsp;','\n').replaceAll('&iexcl;','¡').replaceAll('&cent;','¢').replaceAll('&pound;','£').replaceAll('&curren;','¤').replaceAll('&yen;','¥').replaceAll('&brvbar;','¦').replaceAll('&sect;','§').replaceAll('&uml;','¨').replaceAll('&copy;','©').replaceAll('&ordf;','ª').replaceAll('&laquo;','«').replaceAll('&not;','¬').replaceAll('&shy;','\u00AD').replaceAll('&reg;','®').replaceAll('&macr;','¯').replaceAll('&deg;','°').replaceAll('&plusmn;','±').replaceAll('&sup2;','²').replaceAll('&sup3;','³').replaceAll('&acute;','´').replaceAll('&micro;','µ').replaceAll('&para;','¶').replaceAll('&middot;','·').replaceAll('&cedil;','¸').replaceAll('&sup1;','¹').replaceAll('&ordm;','º').replaceAll('&raquo;','»').replaceAll('&frac14;','¼').replaceAll('&frac12;','½').replaceAll('&frac34;','¾').replaceAll('&iquest;','¿').replaceAll('&times;','×').replaceAll('&divide;','÷').replaceAll('&Agrave;','À').replaceAll('&Aacute;','Á').replaceAll('&Acirc;','Â').replaceAll('&Atilde;','Ã').replaceAll('&Auml;','Ä').replaceAll('&Aring;','Å').replaceAll('&AElig;','Æ').replaceAll('&Ccedil;','Ç').replaceAll('&Egrave;','È').replaceAll('&Eacute;','É').replaceAll('&Ecirc;','Ê').replaceAll('&Euml;','Ë').replaceAll('&Igrave;','Ì').replaceAll('&Iacute;','Í').replaceAll('&Icirc;','Î').replaceAll('&Iuml;','Ï').replaceAll('&ETH;','Ð').replaceAll('&Ntilde;','Ñ').replaceAll('&Ograve;','Ò').replaceAll('&Oacute;','Ó').replaceAll('&Ocirc;','Ô').replaceAll('&Otilde;','Õ').replaceAll('&Ouml;','Ö').replaceAll('&Oslash;','Ø').replaceAll('&Ugrave;','Ù').replaceAll('&Uacute;','Ú').replaceAll('&Ucirc;','Û').replaceAll('&Uuml;','Ü').replaceAll('&Yacute;','Ý').replaceAll('&THORN;','Þ').replaceAll('&szlig;','ß').replaceAll('&agrave;','à').replaceAll('&aacute;','á').replaceAll('&acirc;','â').replaceAll('&atilde;','ã').replaceAll('&auml;','ä').replaceAll('&aring;','å').replaceAll('&aelig;','æ').replaceAll('&ccedil;','ç').replaceAll('&egrave;','è').replaceAll('&eacute;','é').replaceAll('&ecirc;','ê').replaceAll('&euml;','ë').replaceAll('&igrave;','ì').replaceAll('&iacute;','í').replaceAll('&icirc;','î').replaceAll('&iuml;','ï').replaceAll('&eth;','ð').replaceAll('&ntilde;','ñ').replaceAll('&ograve;','ò').replaceAll('&oacute;','ó').replaceAll('&ocirc;','ô').replaceAll('&otilde;','õ').replaceAll('&ouml;','ö').replaceAll('&oslash;','ø').replaceAll('&ugrave;','ù').replaceAll('&uacute;','ú').replaceAll('&ucirc;','û').replaceAll('&uuml;','ü').replaceAll('&yacute;','ý').replaceAll('&thorn;','þ').replaceAll('&yuml;','ÿ');   
-                                            }
-
-                                            let starterCode = unescape(historyData[0].files[0].text);
-                                            let versions = [];
-                                            for (let i = 1; i < historyData.length; i++) {
-                                                let versionData = historyData[i];
-                                                let versionDate = new Date(versionData.timestamp);
-                                                let versionCode = unescape(versionData.files[0].text);
-
-                                                // data for calculating time worked
-                                                versions.push({
-                                                    date: versionDate,
-                                                    code: versionCode
-                                                });
-
-                                                // data for file writing
-                                                arr_obj_studentCodes.push({
-                                                    editTime: versionDate.toISOString(),
-                                                    code: versionCode
-                                                });
-                                            }
-
-                                            // get work time and sessions
-                                            numVersions = versions.length;
-                                            if (numVersions > 0) {
-                                                let prevDate = versions[0].date;
-                                                for (let i = 1; i < versions.length; i++) {
-                                                    let v = versions[i];
-                                                    let deltaTime = (v.date.getTime() - prevDate.getTime()) / 1000; //in seconds
-                                                    if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
-                                                        numSesh++;
-                                                    } else {
-                                                        runningTotalSeconds += deltaTime;
-                                                        if (v.date.getTime() <= dueDateObj.getTime()) {
-                                                            onTimeSeconds += deltaTime;
-                                                        }
-                                                    }
-                                                    prevDate = v.date; //update prev to rn
+                                        try {
+                                            await getCodeHistoryAsync().then(historyData => {
+                                                function unescape(htmlStr) {
+                                                   return htmlStr.replaceAll('&quot;','"').replaceAll('&apos;','').replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&nbsp;','\n').replaceAll('&iexcl;','¡').replaceAll('&cent;','¢').replaceAll('&pound;','£').replaceAll('&curren;','¤').replaceAll('&yen;','¥').replaceAll('&brvbar;','¦').replaceAll('&sect;','§').replaceAll('&uml;','¨').replaceAll('&copy;','©').replaceAll('&ordf;','ª').replaceAll('&laquo;','«').replaceAll('&not;','¬').replaceAll('&shy;','\u00AD').replaceAll('&reg;','®').replaceAll('&macr;','¯').replaceAll('&deg;','°').replaceAll('&plusmn;','±').replaceAll('&sup2;','²').replaceAll('&sup3;','³').replaceAll('&acute;','´').replaceAll('&micro;','µ').replaceAll('&para;','¶').replaceAll('&middot;','·').replaceAll('&cedil;','¸').replaceAll('&sup1;','¹').replaceAll('&ordm;','º').replaceAll('&raquo;','»').replaceAll('&frac14;','¼').replaceAll('&frac12;','½').replaceAll('&frac34;','¾').replaceAll('&iquest;','¿').replaceAll('&times;','×').replaceAll('&divide;','÷').replaceAll('&Agrave;','À').replaceAll('&Aacute;','Á').replaceAll('&Acirc;','Â').replaceAll('&Atilde;','Ã').replaceAll('&Auml;','Ä').replaceAll('&Aring;','Å').replaceAll('&AElig;','Æ').replaceAll('&Ccedil;','Ç').replaceAll('&Egrave;','È').replaceAll('&Eacute;','É').replaceAll('&Ecirc;','Ê').replaceAll('&Euml;','Ë').replaceAll('&Igrave;','Ì').replaceAll('&Iacute;','Í').replaceAll('&Icirc;','Î').replaceAll('&Iuml;','Ï').replaceAll('&ETH;','Ð').replaceAll('&Ntilde;','Ñ').replaceAll('&Ograve;','Ò').replaceAll('&Oacute;','Ó').replaceAll('&Ocirc;','Ô').replaceAll('&Otilde;','Õ').replaceAll('&Ouml;','Ö').replaceAll('&Oslash;','Ø').replaceAll('&Ugrave;','Ù').replaceAll('&Uacute;','Ú').replaceAll('&Ucirc;','Û').replaceAll('&Uuml;','Ü').replaceAll('&Yacute;','Ý').replaceAll('&THORN;','Þ').replaceAll('&szlig;','ß').replaceAll('&agrave;','à').replaceAll('&aacute;','á').replaceAll('&acirc;','â').replaceAll('&atilde;','ã').replaceAll('&auml;','ä').replaceAll('&aring;','å').replaceAll('&aelig;','æ').replaceAll('&ccedil;','ç').replaceAll('&egrave;','è').replaceAll('&eacute;','é').replaceAll('&ecirc;','ê').replaceAll('&euml;','ë').replaceAll('&igrave;','ì').replaceAll('&iacute;','í').replaceAll('&icirc;','î').replaceAll('&iuml;','ï').replaceAll('&eth;','ð').replaceAll('&ntilde;','ñ').replaceAll('&ograve;','ò').replaceAll('&oacute;','ó').replaceAll('&ocirc;','ô').replaceAll('&otilde;','õ').replaceAll('&ouml;','ö').replaceAll('&oslash;','ø').replaceAll('&ugrave;','ù').replaceAll('&uacute;','ú').replaceAll('&ucirc;','û').replaceAll('&uuml;','ü').replaceAll('&yacute;','ý').replaceAll('&thorn;','þ').replaceAll('&yuml;','ÿ');   
                                                 }
-                                            }
-                                            
+                                                if (historyData === undefined || historyData === null) {
+                                                    console.error("[aerror] historyData is " + historyData + contextDescription);
+                                                } else if (historyData[0] === undefined) {
+                                                    console.error("[aerror] historyData[0] = " + historyData[0] + contextDescription);
+                                                } else if (historyData[0].files === undefined) {
+                                                    console.error("[aerror] historyData[0].files = " + historyData[0].files + contextDescription);
+                                                } else if (historyData[0].files[0] === undefined) {
+                                                    console.error("[aerror] historyData[0].files[0] = " + historyData[0].files[0] + contextDescription);
+                                                } else if (typeof historyData[0].files[0].text !== "string") {
+                                                    console.error("[aerror] historyData[0].files[0].text = " + historyData[0].files[0].text + ", but it should be a string " + contextDescription);
+                                                }
+                                                let starterCode = unescape(historyData[0].files[0].text);
+                                                let versions = [];
+                                                if (historyData.length === undefined) {
+                                                    console.error("[aerror] historyData.length = " + historyData.length + contextDescription);
+                                                }
+                                                for (let i = 1; i < historyData.length; i++) {
+                                                    let versionData = historyData[i];
+                                                    let versionDate = new Date(versionData.timestamp);
+                                                    if (versionData.files === undefined) {
+                                                        console.error("[aerror] versionData.files is undefined" + contextDescription);
+                                                    } else if (versionData.files[0] === undefined) {
+                                                        console.error("[aerror] versionData.files[0] is undefined" + contextDescription);
+                                                    } else if (typeof versionData.files[0].text !== "string") {
+                                                        console.error("[aerror] versionData.files[0].text is not a string (versionData.files[0].text = " + versionData.files[0].text + ")" + contextDescription);
+                                                    }
+                                                    let versionCode = unescape(versionData.files[0].text);
 
-                                            if (!String.prototype.splice) {
-                                                String.prototype.splice = function (idx, rem, str) {
-                                                    return this.slice(0, idx) + str + this.slice(idx + Math.abs(rem));
-                                                };
-                                            }
-                                        }).catch(err => {
-                                            console.info('[ainfo]' + err.message);
-                                            //ignore
-                                        });
 
-                                        let late = submittedOnTime;
+                                                    // data for calculating time worked
+                                                    versions.push({
+                                                        date: versionDate,
+                                                        code: versionCode
+                                                    });
+
+                                                    // data for file writing
+                                                    arr_obj_studentCodes.push({
+                                                        editTime: versionDate.toISOString(),
+                                                        code: versionCode
+                                                    });
+                                                }
+
+                                                // get work time and sessions
+                                                numVersions = versions.length;
+                                                if (numVersions > 0) {
+                                                    let prevDate = versions[0].date;
+                                                    for (let i = 1; i < versions.length; i++) {
+                                                        let v = versions[i];
+                                                        let deltaTime = (v.date.getTime() - prevDate.getTime()) / 1000; //in seconds
+                                                        if (deltaTime > 30 * 60) { // time elapsed > 30 mins?
+                                                            numSesh++;
+                                                        } else {
+                                                            runningTotalSeconds += deltaTime;
+                                                            if (v.date.getTime() <= dueDateObj.getTime()) {
+                                                                onTimeSeconds += deltaTime;
+                                                            }
+                                                        }
+                                                        prevDate = v.date; //update prev to rn
+                                                    }
+                                                }
+
+                                                // This is used later. There might be a better place to define it, but it works for now.
+                                                if (!String.prototype.splice) {
+                                                    String.prototype.splice = function (idx, rem, str) {
+                                                        return this.slice(0, idx) + str + this.slice(idx + Math.abs(rem));
+                                                    };
+                                                }
+                                            });
+                                        } catch (err) {
+                                            console.error("[aerror] " + err.message + contextDescription);
+                                        }
 
                                         //https://codehs.com/editor/ajax/ajax_abacus_history?code_user_id=3591904&item_id=74&student_assignment_id=1481117718&viewer_id=104748&method=ajax_abacus_history
                                         function getCodeHistoryAsync() {
@@ -1042,7 +1172,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 xmlhr.onreadystatechange = function () {
                                                     if (this.readyState === 4) {
                                                         if (this.status === 200) {
-                                                            resolve2(JSON.parse(this.responseText).history);
+                                                            try {
+                                                                resolve2(JSON.parse(this.responseText).history);
+                                                            } catch (err) {
+                                                                reject2(err.message);
+                                                            }
                                                         } else {
                                                             reject2(this.status);
                                                         }
@@ -1062,7 +1196,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 xmlStatus.onreadystatechange = function () {
                                                     if (this.readyState === 4) {
                                                         if (this.status === 200) {
-                                                            resolve2(JSON.parse(this.responseText));
+                                                            try {
+                                                                resolve2(JSON.parse(this.responseText));
+                                                            } catch (err) {
+                                                                reject2(err.message);
+                                                            }
                                                         } else {
                                                             reject2(this.status);
                                                         }
@@ -1093,13 +1231,13 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 xmlTabs.onreadystatechange = function () {
                                                     if (this.readyState === 4) {
                                                         if (this.status === 200) {
-                                                            console.log("restxt = ", JSON.parse(this.responseText).tabs);
                                                             resolve2(JSON.parse(this.responseText).tabs);
                                                         } else {
                                                             reject2(this.status);
                                                         }
                                                     }
                                                 };
+                                                //                    https://codehs.com/editor/ajax/batch_abacus_editor_tabs?requestData%5Bitem_id%5D=74                &requestData%5Bmodule_id%5D=0&requestData%5Bcourse_id%5D=0&requestData%5Bcode_user_id%5D=3591904               &requestData%5Bstudent_assignment_id%5D=1481117718                     &requestData%5Bresult_world%5D=&tabNames%5B%5D=overview+left+tab&tabNames%5B%5D=exercise+tab&tabNames%5B%5D=autograder+tab&tabNames%5B%5D=lms+grading+tab&tabNames%5B%5D=solution+tab&tabNames%5B%5D=video+tab&tabNames%5B%5D=help+tab&tabNames%5B%5D=download+tab&tabNames%5B%5D=about+tab&tabNames%5B%5D=teacher+tab&tabNames%5B%5D=share+tab&tabNames%5B%5D=upload+tab&method=batch_abacus_editor_tabs
                                                 xmlTabs.open("POST", "https://codehs.com/editor/ajax/batch_abacus_editor_tabs?requestData%5Bitem_id%5D=" + dataItemId + "&requestData%5Bmodule_id%5D=0&requestData%5Bcourse_id%5D=0&requestData%5Bcode_user_id%5D=" + dataCodeUserId + "&requestData%5Bstudent_assignment_id%5D=" + dataStudentAssignmentId + "&requestData%5Bresult_world%5D=&tabNames%5B%5D=overview+left+tab&tabNames%5B%5D=exercise+tab&tabNames%5B%5D=autograder+tab&tabNames%5B%5D=lms+grading+tab&tabNames%5B%5D=solution+tab&tabNames%5B%5D=video+tab&tabNames%5B%5D=help+tab&tabNames%5B%5D=download+tab&tabNames%5B%5D=about+tab&tabNames%5B%5D=teacher+tab&tabNames%5B%5D=share+tab&tabNames%5B%5D=upload+tab&method=batch_abacus_editor_tabs", true);
                                                 xmlTabs.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
                                                 xmlTabs.setRequestHeader('x-requested-with', 'XMLHttpRequest');
@@ -1115,9 +1253,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             firstTryTime: firstTryTime,
                                             timeWorkedBeforeDue: onTimeSeconds / 60,
                                             timeWorkedTotal: runningTotalSeconds / 60,
+                                            firstSubmissionDate: firstSubmissionDate,
+                                            lastSubmissionDate: lastSubmissionDate,
                                             onTimeStatus: "not determined",
                                             // isSubmitted: submitted, favoring the not-not-submitted or not-unopened method
-                                            isLate: late,
+                                            isLate: !submittedOnTime,
                                             problemStatus: problemStatus,
                                             pointsAwarded: 0,
                                             maxPoints: 1,
@@ -1139,7 +1279,6 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                         //calculate points to award for each exercise
                         //calculate on time status for each exercise
-                        console.info(studentObject);
                         let {assignments} = studentObject;
 
                         let totalTimeWorked = 0;
@@ -1192,7 +1331,9 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         studentObject.timeSpentTotal = totalTimeWorked;
 
                         studentObject.totalPoints = Math.round(totalPoints / numExercises * 10 * 100) / 100;
-                    }));
+                    })).catch(err => {
+                        console.error("[aerror] " + err.message);
+                    });
 
                     return arr_obj_students;
 
@@ -1242,7 +1383,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             Object.keys(classObj.students[0].assignments).forEach(assignmentKey => {
                 //let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
                 // console.info('assignmentName' , assignmentName);
-                headers.push('Problem', 'Due', 'First Try', 'First Time', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
+                headers.push('Problem', 'Due', 'First Try', 'First Time', 'First Submit', 'Last Submit', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Points', 'Number of Versions', 'Number of Sessions');
                 //assignmentsStr += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + '_');
             });
             outPath = path.join(outPath, assignment_name).trim() + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
@@ -1262,6 +1403,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 let allMissing = true;
                 let isOnTime = false;
 
+                //console.info("[ainfo] studentObject = " + JSON.stringify(studentObj, null, 4));
+
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     studentRow.push(studentObj.assignments[assignmentIDs].problemName);
                     let d = new Date(date_dueDate);
@@ -1273,6 +1416,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                             d.getSeconds().padLeft()].join(':'));
                     studentRow.push(studentObj.assignments[assignmentIDs].firstTryDate);
                     studentRow.push(studentObj.assignments[assignmentIDs].firstTryTime);
+                    studentRow.push(studentObj.assignments[assignmentIDs].firstSubmissionDate);
+                    studentRow.push(studentObj.assignments[assignmentIDs].lastSubmissionDate);
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedBeforeDue.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].timeWorkedTotal.toString().minsToHHMMSS());
                     studentRow.push(studentObj.assignments[assignmentIDs].onTimeStatus);
@@ -1289,6 +1434,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                     studentRow.push(studentObj.assignments[assignmentIDs].pointsAwarded);
                     studentRow.push(studentObj.assignments[assignmentIDs].numberOfVersions);
                     studentRow.push(studentObj.assignments[assignmentIDs].numberOfSessions);
+                    // for (let i = 0; i < studentRow.length; i++) {
+                    //     console.info("\n[ainfo] row " + i + " = " + studentRow[i]);
+                    //     if ((""+ studentRow[i]).indexOf(",") != -1) {
+                    //         console.error("[aerror] student row " + i + " contains comma: " + studentRow[i]);
+                    //     }
+                    // }
                 });
 
                 studentRow.push(studentObj.totalPoints);
