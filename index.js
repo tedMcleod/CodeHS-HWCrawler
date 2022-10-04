@@ -859,7 +859,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                     // Limits to a particular student
                     // for (let i = 0; i < arr_obj_students.length; i++) {
-                    //     if (arr_obj_students[i].firstName === "Jake") {
+                    //     if (arr_obj_students[i].firstName === "Dipesh") {
                     //         arr_obj_students = [arr_obj_students[i]];
                     //         break;
                     //     }
@@ -1073,7 +1073,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                     subYr++;
                                                 }
                                                 date_submissionDate.setFullYear(subYr);
-                                                if (dueDateObj.getTime() > date_submissionDate.getTime()) {
+                                                if (dueDateObj.getTime() >= date_submissionDate.getTime()) {
                                                     submittedOnTime = true;
                                                 }
                                                 if (earliestSubDate == null || date_submissionDate.getTime() < earliestSubDate.getTime()) {
@@ -1264,8 +1264,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             firstSubmissionDate: firstSubmissionDate,
                                             lastSubmissionDate: lastSubmissionDate,
                                             onTimeStatus: "not determined",
-                                            // isSubmitted: submitted, favoring the not-not-submitted or not-unopened method
-                                            isLate: !submittedOnTime,
+                                            submittedOnTime: submittedOnTime,
                                             problemStatus: problemStatus,
                                             pointsAwarded: 0,
                                             maxPoints: 1,
@@ -1297,54 +1296,106 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                         let totalTimeWorked = 0;
                         let totalPoints = 0;
                         let numExercises = arr_assignmentsKeys.length;
-                        let allOnTime = true;
-                        let allMissing = true;
+                        let submittedAllOnTime = true;
                         let allSubmitted = true;
                         arr_assignmentsKeys.forEach(key => {
-                            let {timeWorkedTotal, timeWorkedBeforeDue} = assignments[key];
+                            let {timeWorkedTotal, timeWorkedBeforeDue, submittedOnTime} = assignments[key];
                             totalTimeWorked += assignments[key].timeWorkedTotal ? assignments[key].timeWorkedTotal : 0;
                             totalTimeWorkedBeforeDue += assignments[key].timeWorkedBeforeDue ? assignments[key].timeWorkedBeforeDue : 0;
                             let {problemStatus} = assignments[key];
                             let isSubmitted = !problemStatus.includes('not-submitted') && !problemStatus.includes('unopened');
-                            if (!isSubmitted) allSubmitted = false;
+                            if (!isSubmitted) {
+                                allSubmitted = false;
+                                submittedAllOnTime = false;
+                            }
+                            if (!submittedOnTime) submittedAllOnTime = false;
 
                             if (!isSubmitted && timeWorkedTotal < MINUTES_REQUIRED_FOR_ANY_CREDIT / numExercises){
                                 assignments[key].onTimeStatus = 'missing';
-                                allOnTime = false;
-                            } else if (!assignments[key].isLate || timeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_FULL_CREDIT / numExercises){
+                            } else if (submittedOnTime || timeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_FULL_CREDIT / numExercises){
                                 assignments[key].onTimeStatus = 'on time';
-                                allMissing = false;
                             } else if (timeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_ANY_CREDIT / numExercises){
                                 assignments[key].onTimeStatus = 'incomplete';
-                                allMissing = false;
                             } else {
                                 assignments[key].onTimeStatus = 'late';
-                                allOnTime = false;
-                                allMissing = false;
                             }
                         });
 
-                        if (allOnTime || totalTimeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_FULL_CREDIT) {
+                        /*
+                            Guiding Principles:
+                                - if students put in full required time before due date they will get full credit
+                                - if students submitted all assignments on time, they get full credit
+                                - if students put in min time for credit before due date, then they will get on time credit (so they could get full credit if they work more)
+                                - if not everything was submitted on time and they didn't work at least min time for credit before due date, it is late, so they will get 70% of any score in the future
+
+
+
+                            if all assignments were submitted on time OR time spent before due >= full credit time
+                                    --> on time and max points
+                            else if time spent before due >= min time for any credit
+                                if all assignments are submitted OR total time spent is >= full credit time 
+                                    --> score is full credit and on time
+                                else
+                                    --> score is totalTimeSpent / timeForMaxCredit * max and status is on time
+
+                             // ALL THESE ARE LATE NOW
+                            else if all submitted OR total time spent is >= full credit time
+                                -> score is 70% of max and status is late
+                            else if total time spent is >= min time for any credit
+                                -> score is totalTimeSpent / timeForMaxCredit * max * 0.7 and status is late
+                            else
+                                -> score is 0 and status is missing
+                        */
+                        
+                        //if all assignments were submitted on time OR time spent before due >= full credit time
+                        if (submittedAllOnTime || totalTimeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_FULL_CREDIT) {
+                            // on time and max points
                             totalPoints = MAX_POINTS;
                             studentObject.onTimeStatus = 'on time';
-                        } else if (allSubmitted || totalTimeWorked >= MINUTES_REQUIRED_FOR_ANY_CREDIT) {
-                            if (allSubmitted) {
-                                totalPoints = Math.round(MAX_POINTS * LATE_CREDIT_MULTIPLIER * 100) / 100;
-                                studentObject.onTimeStatus = 'late';
+
+                        /** still on time since they worked the minimum **/
+                        // else if time spent before due >= min time for any credit
+                        } else if (totalTimeWorkedBeforeDue >= MINUTES_REQUIRED_FOR_ANY_CREDIT) {
+                            // if all assignments are submitted OR total time spent is >= full credit time 
+                            if (allSubmitted || totalTimeWorked >= MINUTES_REQUIRED_FOR_FULL_CREDIT) {
+                                // score is full credit and on time
+                                totalPoints = MAX_POINTS;
+                                studentObject.onTimeStatus = 'on time';
                             } else {
-                                let lateWorkTime = Math.min(totalTimeWorked, MINUTES_REQUIRED_FOR_FULL_CREDIT)  - totalTimeWorkedBeforeDue;
-                                if (lateWorkTime > 0) {
-                                    studentObject.onTimeStatus = 'late';
-                                } else {
-                                    studentObject.onTimeStatus = 'incomplete';
-                                }
-                                totalPoints = MAX_POINTS * (totalTimeWorkedBeforeDue + lateWorkTime * LATE_CREDIT_MULTIPLIER) / MINUTES_REQUIRED_FOR_FULL_CREDIT;
-                                totalPoints = Math.round(totalPoints * 100) / 100;
+                                // score is totalTimeSpent / timeForMaxCredit * max and status is on time
+                                totalPoints = Math.round(MAX_POINTS * totalTimeWorked / MINUTES_REQUIRED_FOR_FULL_CREDIT * 100) / 100;
+                                studentObject.onTimeStatus = 'on time';
                             }
+
+                        /** all these cases are late since on time work was less than minimum **/
+                        // else if all submitted OR total time spent is >= full credit time
+                        } else if (allSubmitted || totalTimeWorked >= MINUTES_REQUIRED_FOR_FULL_CREDIT) {
+                            // score is 70% of max and status is late
+                            totalPoints = Math.round(MAX_POINTS * LATE_CREDIT_MULTIPLIER * 100) / 100;
+                            studentObject.onTimeStatus = 'late';
+                        // else if total time spent is >= min time for any credit
+                        } else if (totalTimeWorked >= MINUTES_REQUIRED_FOR_ANY_CREDIT) {
+                            // score is totalTimeSpent / timeForMaxCredit * max * 0.7 and status is late
+                            totalPoints = Math.round(MAX_POINTS * LATE_CREDIT_MULTIPLIER * totalTimeWorked / MINUTES_REQUIRED_FOR_FULL_CREDIT * 100) / 100;
+                            studentObject.onTimeStatus = 'late';
+
+                        /** Did not submit all assignments (not done) && did not work for even the minimum time for any credit **/
                         } else {
+                            // score is 0 and status is missing
                             totalPoints = 0;
                             studentObject.onTimeStatus = 'missing';
                         }
+
+                        // this is for debugging purposes
+                        let dataCollected = {
+                            submittedAllOnTime: submittedAllOnTime,
+                            allSubmitted: allSubmitted,
+                            totalTimeWorkedBeforeDue: totalTimeWorkedBeforeDue,
+                            totalTimeWorked: totalTimeWorked,
+                            totalPoints: totalPoints
+                        };
+
+                        //console.info("[ainfo] dataCollected = " + JSON.stringify(dataCollected, null, 4));
 
                         //append total total time worked to student
                         studentObject.timeSpentTotal = totalTimeWorked;

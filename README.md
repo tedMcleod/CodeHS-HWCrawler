@@ -29,6 +29,34 @@ codehs_grades
 
 ## Grading Method
 
+
+### Guiding Principles:
+
+#### if students put in full required time before due date they will get full credit
+
+#### if students submitted all assignments on time, they get full credit
+#### if students put in min time for credit before due date, then they will get on time credit (so they could get full credit if they work more)
+#### if not everything was submitted on time and they didn't work at least min time for credit before due date, it is late, so they will get 70% of any score in the future
+
+if all assignments were submitted on time OR time spent before due >= full credit time
+        --> on time and max points
+else if time spent before due >= min time for any credit
+    if all assignments are submitted OR total time spent is >= full credit time 
+        --> score is full credit and on time
+    else
+        --> score is totalTimeSpent / timeForMaxCredit * max and status is on time
+
+ // ALL THESE ARE LATE NOW
+else if all submitted OR total time spent is >= full credit time
+    -> score is 70% of max and status is late
+else if total time spent is >= min time for any credit
+    -> score is totalTimeSpent / timeForMaxCredit * max * 0.7 and status is late
+else
+    -> score is 0 and status is missing
+
+
+Below is the old grade system.
+
 ### All assignments are out of 10 points.
 ##### If total time spent on assignment <code>>= 45</code> minutes
 Award 10/10 pts for the assignment. 
