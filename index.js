@@ -802,7 +802,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
             }
 
             //console.info('[ainfo] arr_assignmentIDs = ' + JSON.stringify(arr_assignmentIDs));
-            //console.info('\n[ainfo] problemIdMap = ' + JSON.stringify(problemIdMap, null, 4) + "\n");
+            console.info('\n[ainfo] problemIdMap = ' + JSON.stringify(problemIdMap, null, 4) + "\n");
             //need to move to codehs.com for cors
             if (boolean_useCache) await page.goto('https://www.codehs.com');
 
@@ -859,7 +859,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                     // Limits to a particular student
                     // for (let i = 0; i < arr_obj_students.length; i++) {
-                    //     if (arr_obj_students[i].firstName === "Lily") {
+                    //     if (arr_obj_students[i].firstName === "Jake") {
                     //         arr_obj_students = [arr_obj_students[i]];
                     //         break;
                     //     }
@@ -973,22 +973,23 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         let firstTryTime;
                                         let firstTryDate;
                                         let date_startDate;
+                                        let originalStartedText = startedText;
                                         if (startedText !== undefined) {
                                             //console.info('[ainfo] parsing startedText' + contextDescription)
                                             startedText = startedText.trim();
-                                            let onIndex = startedText.indexOf('on');
+                                            let onIndex = startedText.lastIndexOf(' on');
                                             if (onIndex === -1) {
-                                                console.error("[aerror] startedText does not contain 'on'" + contextDescription);
+                                                console.error("[aerror] startedText does not contain ' on'" + contextDescription);
                                             }
                                             //console.info('[ainfo] (2) startedText = ' + startedText);
-                                            let originalStartedText = startedText;
-                                            startedText = startedText.substring(onIndex + 2).trim();
+                                            startedText = startedText.substring(onIndex + 3).trim();
                                             //console.info('[ainfo] (3) startedText = ' + startedText);
+                                            //console.info('[ainfo] (3) startedText.length = ' + startedText.length);
                                             if (startedText.length === 0) {
                                                 firstTryTime = "--";
                                                 firstTryDate = "--";
                                             } else {
-                                                startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM');
+                                                startedText = startedText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM').replace('midnight', '12:00 AM');
                                                 //console.info('[ainfo] (4) startedText = ' + startedText);
                                                 if (startedText.indexOf(':') === -1) {
                                                     let spc = startedText.lastIndexOf(' ');
@@ -1057,7 +1058,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             let earliestSubDate = null;
                                             let latestSubDate = null;
                                             for (let i = 0; i < submissions.length; i++) {
-                                                let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM');
+                                                let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM').replace('midnight', '12:00 AM');
+
                                                 if (subDateTxt.indexOf(':') === -1) {
                                                     let spc = subDateTxt.lastIndexOf(' ');
                                                     subDateTxt = subDateTxt.substring(0, spc) + ":00" + subDateTxt.substring(spc);
