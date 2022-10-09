@@ -15,7 +15,8 @@ const prompts = require('prompts'),
     os = require('os'),
     terminalLink = require('terminal-link');
 
-// set DEBUG to true to see console.info('[ainfo] ') messages
+// set DEBUG to true to see console.info('[ainfo] ') messages in the terminal
+// Note, that you can also debug by putting pupateer in non-headless mode and opening the console in the browser while it runs
 const DEBUG = true;
 let crypto, browser;
 try {
@@ -88,7 +89,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
     async function startPuppeteer() {
         browser = await puppeteer.launch({
-            // headless: false //remove for production
+            headless: false //remove for production
         });
     }
 
@@ -859,7 +860,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                     // Limits to a particular student
                     // for (let i = 0; i < arr_obj_students.length; i++) {
-                    //     if (arr_obj_students[i].firstName === "Dipesh") {
+                    //     if (arr_obj_students[i].firstName === "Iker") {
                     //         arr_obj_students = [arr_obj_students[i]];
                     //         break;
                     //     }
@@ -885,95 +886,122 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         let problemName = document.title.split('|')[0].trim();
                                         //console.info('[ainfo] problemName = ' + problemName + contextDescription);
-                                        if (typeof document.querySelector !== "function") {
-                                            console.error("[aerror] document.querySelector is not a function!" + contextDescription);
-                                        }
-                                        const parent = document.querySelector('#teacher-revision-banner');
-                                        if (!parent) {
-                                            console.error("[aerror] teacher-revision-banner does not exist!" + contextDescription);
-                                        }
-                                        const children = parent.querySelectorAll('span');
-                                        if (!children) {
-                                            console.error("[aerror] teacher-revision-banner has no span children!" + contextDescription);
-                                        } else if (children.length < 2) {
-                                            console.error("[aerror] teacher-revision-banner does not have at least 2 children!" + contextDescription);
-                                        }
-                                        const span = children[1];
-                                        const dataId = span.getAttribute('data-id');
-                                        if (dataId === undefined || dataId === null) {
-                                            console.error("[aerror] span does not have a 'data-id' attribute!" + contextDescription);
-                                        }
-                                        const dataCodeUserId = span.getAttribute('data-code-user-id');
-                                        if (dataCodeUserId === undefined || dataCodeUserId === null) {
-                                            console.error("[aerror] span does not have a 'data-code-user-id' attribute!" + contextDescription);
-                                        }
-                                        const dataStudentAssignmentId = span.getAttribute('data-student-assignment-id');
-                                        if (dataStudentAssignmentId === undefined || dataStudentAssignmentId === null) {
-                                            console.error("[aerror] span does not have a 'data-student-assignment-id' attribute!" + contextDescription);
-                                        }
-                                        const dataItemId = span.getAttribute('data-item-id');
-                                        if (dataItemId === undefined || dataItemId === null) {
-                                            console.error("[aerror] span does not have a 'data-item-id' attribute!" + contextDescription);
-                                        }
-                                        //console.info("[ainfo] dataId = " + dataId + " dataCodeUserId = " + dataCodeUserId + " dataStudentAssignmentId = " + dataStudentAssignmentId + " dataItemId = " + dataItemId);
                                         let startedText;
-                                        let tabDocs = {};
-
-                                        // assumes docs is an object where the value associated with each key is an html document
-                                        // will find the first element with the given id, if it is in one of the docs
-                                        // returns the element with the given id or null if none exists.
-                                        function getElementByIdInDocs(id, docs) {
-                                            for (let key in docs) {
-                                                let elem = docs[key].getElementById(id);
-                                                if (elem) {
-                                                    //console.info("[ainfo] found element with id " + id + " in docs[" + key + "]");
-                                                    return elem;
-                                                }
-                                            }
-                                            return null;
-                                        }
-
-                                        //console.info('[ainfo] getting tabs' + contextDescription);
-                                        try {
-                                            await getTabsAsync().then(tabs => {
-                                                function htmlToElement(html) {
-                                                    if (typeof(html) !== "string") {
-                                                        console.error("[aerror] html is not a string! - " + html + contextDescription);
-                                                    }
-                                                    let doc = document.implementation.createHTMLDocument("Help Tab");
-                                                    let div = document.createElement('div');
-                                                    html = html.trim(); // Never return a text node of whitespace as the result
-                                                    div.innerHTML = html;
-                                                    doc.body.appendChild(div);
-                                                    return doc;
-                                                }
-                                                //console.info('[ainfo] tabs = ' + tabs);
-                                                if (tabs === undefined || tabs === null) {
-                                                    console.error("[aerror] tabs xhr request returned " + tabs + contextDescription);
-                                                }
-                                                let tabKeys = Object.keys(tabs);
-                                                for (let i = 0; i < tabKeys.length; i++) {
-                                                    tabDocs[tabKeys[i]] = htmlToElement(tabs[tabKeys[i]].text);
-                                                }
-
-                                                let startedTimeElement = getElementByIdInDocs("started-time", tabDocs);
-                                                if (startedTimeElement === undefined || startedTimeElement === null) {
-                                                    //console.info("[ainfo] tabDocs does not have an element with id 'started-time'" + contextDescription);
-                                                } else if (startedTimeElement.innerText === undefined) {
-                                                    //console.info("[ainfo] startedTimeElement.innerText is undefined" + contextDescription);
-                                                } else {
-                                                    startedText = startedTimeElement.innerText;
-                                                }
-                                                //console.info('[ainfo] (1) startedText = ' + startedText);
-                                            });
-                                        } catch (err) {
-                                            console.error("[aerror] " + err.message + contextDescription);
-                                        }
-                                        //console.info('[ainfo] getting firstTryTime' + contextDescription);
                                         let firstTryTime;
                                         let firstTryDate;
                                         let date_startDate;
                                         let originalStartedText = startedText;
+                                        let selectionField;
+                                        let dataStudentAssignmentId;
+                                        let dataId;
+                                        let dataCodeUserId;
+                                        let dataItemId;
+                                        try {
+                                            let startedTimeElement = document.querySelector("#started-time");
+                                            let  startMsg = startedTimeElement.querySelector('.msg-content');
+                                            let startP = startMsg.querySelector("p");
+                                            startedText = startP.innerText;
+                                            //console.info('[ainfo] startP startedText = ' + startedText);
+                                            selectionField = document.getElementById("assignment-submission-select");
+                                            let resetElement = document.getElementsByClassName("js-assignment-reset")[0];
+                                            dataStudentAssignmentId = resetElement.getAttribute("data-student_assignment_id");
+                                            dataId = resetElement.getAttribute("data-uid");
+                                            dataCodeUserId = resetElement.getAttribute("data-uid");
+                                            dataItemId = resetElement.getAttribute("data-item_id");
+                                            //console.info("[ainfo] dataStudentAssignmentId = " + dataStudentAssignmentId);
+                                            //console.info("[ainfo] dataId = " + dataId + " dataCodeUserId = " + dataCodeUserId + " dataStudentAssignmentId = " + dataStudentAssignmentId + " dataItemId = " + dataItemId);
+                                        } catch (err) {
+                                            //console.info('[ainfo] not a Karel Problem: ' + err.message);
+                                            if (typeof document.querySelector !== "function") {
+                                                console.error("[aerror] document.querySelector is not a function!" + contextDescription);
+                                            }
+                                            let parent = document.querySelector('#teacher-revision-banner');
+                                            if (!parent) {
+                                                console.error("[aerror] teacher-revision-banner does not exist!" + contextDescription);
+                                            }
+                                            let children = parent.querySelectorAll('span');
+                                            if (!children) {
+                                                console.error("[aerror] teacher-revision-banner has no span children!" + contextDescription);
+                                            } else if (children.length < 2) {
+                                                console.error("[aerror] teacher-revision-banner does not have at least 2 children!" + contextDescription);
+                                            }
+                                            let span = children[1];
+                                            dataId = span.getAttribute('data-id');
+                                            if (dataId === undefined || dataId === null) {
+                                                console.error("[aerror] span does not have a 'data-id' attribute!" + contextDescription);
+                                            }
+                                            dataCodeUserId = span.getAttribute('data-code-user-id');
+                                            if (dataCodeUserId === undefined || dataCodeUserId === null) {
+                                                console.error("[aerror] span does not have a 'data-code-user-id' attribute!" + contextDescription);
+                                            }
+                                            dataStudentAssignmentId = span.getAttribute('data-student-assignment-id');
+                                            if (dataStudentAssignmentId === undefined || dataStudentAssignmentId === null) {
+                                                console.error("[aerror] span does not have a 'data-student-assignment-id' attribute!" + contextDescription);
+                                            }
+                                            dataItemId = span.getAttribute('data-item-id');
+                                            if (dataItemId === undefined || dataItemId === null) {
+                                                console.error("[aerror] span does not have a 'data-item-id' attribute!" + contextDescription);
+                                            }
+                                            //console.info("[ainfo] dataId = " + dataId + " dataCodeUserId = " + dataCodeUserId + " dataStudentAssignmentId = " + dataStudentAssignmentId + " dataItemId = " + dataItemId);
+
+                                            let tabDocs = {};
+
+                                            // assumes docs is an object where the value associated with each key is an html document
+                                            // will find the first element with the given id, if it is in one of the docs
+                                            // returns the element with the given id or null if none exists.
+                                            function getElementByIdInDocs(id, docs) {
+                                                for (let key in docs) {
+                                                    let elem = docs[key].getElementById(id);
+                                                    if (elem) {
+                                                        //console.info("[ainfo] found element with id " + id + " in docs[" + key + "]");
+                                                        return elem;
+                                                    }
+                                                }
+                                                return null;
+                                            }
+
+                                            //console.info('[ainfo] getting tabs' + contextDescription);
+                                            try {
+                                                await getTabsAsync().then(tabs => {
+                                                    function htmlToElement(html) {
+                                                        if (typeof(html) !== "string") {
+                                                            console.error("[aerror] html is not a string! - " + html + contextDescription);
+                                                        }
+                                                        let doc = document.implementation.createHTMLDocument("Help Tab");
+                                                        let div = document.createElement('div');
+                                                        html = html.trim(); // Never return a text node of whitespace as the result
+                                                        div.innerHTML = html;
+                                                        doc.body.appendChild(div);
+                                                        return doc;
+                                                    }
+                                                    //console.info('[ainfo] tabs = ' + tabs);
+                                                    if (tabs === undefined || tabs === null) {
+                                                        console.error("[aerror] tabs xhr request returned " + tabs + contextDescription);
+                                                    }
+                                                    let tabKeys = Object.keys(tabs);
+                                                    for (let i = 0; i < tabKeys.length; i++) {
+                                                        tabDocs[tabKeys[i]] = htmlToElement(tabs[tabKeys[i]].text);
+                                                    }
+
+                                                    let startedTimeElement = getElementByIdInDocs("started-time", tabDocs);
+                                                    if (startedTimeElement === undefined || startedTimeElement === null) {
+                                                        //console.info("[ainfo] tabDocs does not have an element with id 'started-time'" + contextDescription);
+                                                    } else if (startedTimeElement.innerText === undefined) {
+                                                        //console.info("[ainfo] startedTimeElement.innerText is undefined" + contextDescription);
+                                                    } else {
+                                                        startedText = startedTimeElement.innerText;
+                                                    }
+                                                    //console.info('[ainfo] (1) startedText = ' + startedText);
+                                                }).catch(err => {
+                                                    console.error("[aerror] err from .catch" + err.message + contextDescription);
+                                                });
+                                            } catch (err) {
+                                                console.error("[aerror] catch err from outer try" + err.message + contextDescription);
+                                            }
+                                            selectionField = getElementByIdInDocs("assignment-submission-select", tabDocs);
+                                            
+                                        }
+
                                         if (startedText !== undefined) {
                                             //console.info('[ainfo] parsing startedText' + contextDescription)
                                             startedText = startedText.trim();
@@ -1019,6 +1047,7 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         }
                                         //console.info('[ainfo] firstTryTime = ' + firstTryTime + " firstTryDate = " + firstTryDate + contextDescription);
 
+
                                         //console.info('[ainfo] getting problem status' + contextDescription);
                                         //get problem status
                                         //https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481117717&method=get_student_assignment_status
@@ -1028,13 +1057,13 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                 problemStatus = statusData.css_class
                                             });
                                         } catch (err) {
-                                            console.error("[aerror] " + err.message + contextDescription);
+                                            console.error("[aerror]  getStatusAsync()" + err.message + contextDescription);
                                         }
                                         //console.info('[ainfo] problemStatus = ' + problemStatus + contextDescription);
 
                                         // get submissions
-                                        let selectionField = getElementByIdInDocs("assignment-submission-select", tabDocs);
                                         //console.info('[ainfo] selectionField = ' + selectionField + contextDescription);
+                                        //console.log(selectionField);
                                         let submittedOnTime = false;
                                         let dueDateObj = new Date(date_dueDate);
                                        // console.info('[ainfo] dueDateObj = ' + dueDateObj + contextDescription);
@@ -1055,18 +1084,29 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                         }
                                         if (selectionField) {
                                             let submissions = selectionField.getElementsByTagName('option');
+                                            //console.log(submissions);
                                             let earliestSubDate = null;
                                             let latestSubDate = null;
                                             for (let i = 0; i < submissions.length; i++) {
                                                 let subDateTxt = submissions[i].innerText.replace('p.m.', 'PM').replace('a.m.', 'AM').replace('noon', '12:00 PM').replace('midnight', '12:00 AM');
-
+                                                //console.log("subDateTxt = " + subDateTxt);
                                                 if (subDateTxt.indexOf(':') === -1) {
                                                     let spc = subDateTxt.lastIndexOf(' ');
                                                     subDateTxt = subDateTxt.substring(0, spc) + ":00" + subDateTxt.substring(spc);
                                                 }
+                                                //console.log("subDateTxt = " + subDateTxt);
                                                 let date_submissionDate = new Date(subDateTxt);
+                                                //console.log(date_submissionDate);
                                                 if (isNaN(date_submissionDate)) {
                                                     console.info('[ainfo] invalid date_submissionDate from ' + subDateTxt + " which started as: " + submissions[i].innerText + contextDescription);
+                                                }
+                                                // rare case that I think is a bug in codeHS. If the teacher writes something in
+                                                // conversation before the student starts a problem, then they don't actually
+                                                // get a start date entry added at the beginning of the conversation. Probably
+                                                // because it only gets added when conversation message list is empty.
+                                                if (date_startDate === undefined) {
+                                                    //console.error("[aerror] date_startDate is undefined: " + contextDescription);
+                                                    date_startDate = date_submissionDate;
                                                 }
                                                 let subYr = date_startDate.getFullYear();
                                                 if (date_submissionDate.getMonth() < date_startDate.getMonth()) {
@@ -1096,8 +1136,11 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
 
                                         //holds all of a student's code
                                         let arr_obj_studentCodes = [];
+                                        //console.info("[ainfo] getting code history " + contextDescription);
+                                        //console.log("getting code history " + contextDescription);
                                         try {
                                             await getCodeHistoryAsync().then(historyData => {
+                                                //console.log(historyData);
                                                 function unescape(htmlStr) {
                                                    return htmlStr.replaceAll('&quot;','"').replaceAll('&apos;','').replaceAll('&amp;','&').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&nbsp;','\n').replaceAll('&iexcl;','¡').replaceAll('&cent;','¢').replaceAll('&pound;','£').replaceAll('&curren;','¤').replaceAll('&yen;','¥').replaceAll('&brvbar;','¦').replaceAll('&sect;','§').replaceAll('&uml;','¨').replaceAll('&copy;','©').replaceAll('&ordf;','ª').replaceAll('&laquo;','«').replaceAll('&not;','¬').replaceAll('&shy;','\u00AD').replaceAll('&reg;','®').replaceAll('&macr;','¯').replaceAll('&deg;','°').replaceAll('&plusmn;','±').replaceAll('&sup2;','²').replaceAll('&sup3;','³').replaceAll('&acute;','´').replaceAll('&micro;','µ').replaceAll('&para;','¶').replaceAll('&middot;','·').replaceAll('&cedil;','¸').replaceAll('&sup1;','¹').replaceAll('&ordm;','º').replaceAll('&raquo;','»').replaceAll('&frac14;','¼').replaceAll('&frac12;','½').replaceAll('&frac34;','¾').replaceAll('&iquest;','¿').replaceAll('&times;','×').replaceAll('&divide;','÷').replaceAll('&Agrave;','À').replaceAll('&Aacute;','Á').replaceAll('&Acirc;','Â').replaceAll('&Atilde;','Ã').replaceAll('&Auml;','Ä').replaceAll('&Aring;','Å').replaceAll('&AElig;','Æ').replaceAll('&Ccedil;','Ç').replaceAll('&Egrave;','È').replaceAll('&Eacute;','É').replaceAll('&Ecirc;','Ê').replaceAll('&Euml;','Ë').replaceAll('&Igrave;','Ì').replaceAll('&Iacute;','Í').replaceAll('&Icirc;','Î').replaceAll('&Iuml;','Ï').replaceAll('&ETH;','Ð').replaceAll('&Ntilde;','Ñ').replaceAll('&Ograve;','Ò').replaceAll('&Oacute;','Ó').replaceAll('&Ocirc;','Ô').replaceAll('&Otilde;','Õ').replaceAll('&Ouml;','Ö').replaceAll('&Oslash;','Ø').replaceAll('&Ugrave;','Ù').replaceAll('&Uacute;','Ú').replaceAll('&Ucirc;','Û').replaceAll('&Uuml;','Ü').replaceAll('&Yacute;','Ý').replaceAll('&THORN;','Þ').replaceAll('&szlig;','ß').replaceAll('&agrave;','à').replaceAll('&aacute;','á').replaceAll('&acirc;','â').replaceAll('&atilde;','ã').replaceAll('&auml;','ä').replaceAll('&aring;','å').replaceAll('&aelig;','æ').replaceAll('&ccedil;','ç').replaceAll('&egrave;','è').replaceAll('&eacute;','é').replaceAll('&ecirc;','ê').replaceAll('&euml;','ë').replaceAll('&igrave;','ì').replaceAll('&iacute;','í').replaceAll('&icirc;','î').replaceAll('&iuml;','ï').replaceAll('&eth;','ð').replaceAll('&ntilde;','ñ').replaceAll('&ograve;','ò').replaceAll('&oacute;','ó').replaceAll('&ocirc;','ô').replaceAll('&otilde;','õ').replaceAll('&ouml;','ö').replaceAll('&oslash;','ø').replaceAll('&ugrave;','ù').replaceAll('&uacute;','ú').replaceAll('&ucirc;','û').replaceAll('&uuml;','ü').replaceAll('&yacute;','ý').replaceAll('&thorn;','þ').replaceAll('&yuml;','ÿ');   
                                                 }
@@ -1168,6 +1211,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                                         return this.slice(0, idx) + str + this.slice(idx + Math.abs(rem));
                                                     };
                                                 }
+                                            }).catch(err => {
+                                                console.error("[aerror] " + err.message + contextDescription);
                                             });
                                         } catch (err) {
                                             console.error("[aerror] " + err.message + contextDescription);
@@ -1198,6 +1243,8 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             });
                                         }
 
+                                        // https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481118313&method=get_student_assignment_status
+                                        // https://codehs.com/lms/ajax/get_student_assignment_status?studentAssignmentId=1481138647&method=get_student_assignment_status
                                         function getStatusAsync() {
                                             return new Promise(function (resolve2, reject2) {
                                                 let xmlStatus = new XMLHttpRequest();
@@ -1232,6 +1279,12 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                                             });
                                         }
 
+                                        /*
+                                        Karel does these calls:
+
+                                        https://codehs.com/help/ajax/help_thread?itemType=0&itemTypeStr=Exercise&progType=1&progTypeString=karel&itemID=12&moduleID=0&courseID=0&codeUserID=3591927&isSandbox=false&studentAssignmentID=1481138648&clearUnread=true&method=help_thread
+
+                                        */
                                         //https://codehs.com/editor/ajax/batch_abacus_editor_tabs?requestData%5Bitem_id%5D=74&requestData%5Bmodule_id%5D=0&requestData%5Bcourse_id%5D=0&requestData%5Bcode_user_id%5D=3591904&requestData%5Bstudent_assignment_id%5D=1481117718&requestData%5Bresult_world%5D=&tabNames%5B%5D=overview+left+tab&tabNames%5B%5D=exercise+tab&tabNames%5B%5D=autograder+tab&tabNames%5B%5D=lms+grading+tab&tabNames%5B%5D=solution+tab&tabNames%5B%5D=video+tab&tabNames%5B%5D=help+tab&tabNames%5B%5D=download+tab&tabNames%5B%5D=about+tab&tabNames%5B%5D=teacher+tab&tabNames%5B%5D=share+tab&tabNames%5B%5D=upload+tab&method=batch_abacus_editor_tabs
                                         function getTabsAsync() {
                                             return new Promise(function (resolve2, reject2) {
@@ -1617,13 +1670,20 @@ let dateObjRN = new Date(), monthRN = dateObjRN.getMonth() + 1, dayRN = dateObjR
                 const BUTTON_SELECTOR = '#login-submit';
 
                 await pg.click(EMAIL_SELECTOR);
+                await sleep(Math.floor(Math.random() * 1500) + 1000);
                 await pg.keyboard.type(sessionData['email']);
 
+                await sleep(Math.floor(Math.random() * 1500) + 1000);
                 await pg.click(PASSWORD_SELECTOR);
+                await sleep(Math.floor(Math.random() * 1500) + 1000);
                 await pg.keyboard.type(sessionData['password']);
 
+                // if login is failing due to security confirming you are human,
+                // simply comment out this line that clicks and do the click manually
+                // (of course you need to not be in headless mode)
+                await sleep(Math.floor(Math.random() * 1500) + 1000);
                 await pg.click(BUTTON_SELECTOR);
-
+                // this might help prevent the security checks checking for human
                 await pg.waitForNavigation();
 
                 teacherID = await pg.evaluate(() => {
