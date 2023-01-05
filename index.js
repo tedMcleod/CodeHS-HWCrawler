@@ -7,6 +7,7 @@ const prompts = require('prompts'),
     fs = require('fs'),
     path = require('path'),
     puppeteer = require('puppeteer'),
+    {TimeoutError} = require('puppeteer/Errors'),
     format = require('string-format'),
     links = require('./templates/links'),
     pLimit = require('p-limit'),
@@ -14,6 +15,7 @@ const prompts = require('prompts'),
     archiver = require('archiver'),
     os = require('os'),
     terminalLink = require('terminal-link');
+
 
 // set DEBUG to true to see console.info('[ainfo] ') messages in the terminal
 // Note, that you can also debug by putting pupateer in non-headless mode and opening the console in the browser while it runs
@@ -237,21 +239,30 @@ async function loginCodeHS(pg) {
         const PASSWORD_SELECTOR = '#login-password';
         const BUTTON_SELECTOR = '#login-submit';
 
-        await pg.click(EMAIL_SELECTOR);
-        await sleep(Math.floor(Math.random() * 1500) + 1000);
-        await pg.keyboard.type(sessionData['email']);
+        // This waits for the login screen to be available.
+        // If the page asks for human verification, you can do that
+        // and this will wait till that is done before continuing
+        let emailLoaded;
+        do {
+            console.log("\nLooking for email\n");
+            emailLoaded = true;
+            await pg.waitForSelector(EMAIL_SELECTOR)
+            .catch(e => {
+                console.log("email not loaded yet...\n");
+                console.log(e);
+                emailLoaded = false
 
-        await sleep(Math.floor(Math.random() * 1500) + 1000);
+            });
+        } while(!emailLoaded)
+
+        console.log("found email");
+
+        await pg.click(EMAIL_SELECTOR);
+        await pg.keyboard.type(sessionData['email']);
         await pg.click(PASSWORD_SELECTOR);
-        await sleep(Math.floor(Math.random() * 1500) + 1000);
         await pg.keyboard.type(sessionData['password']);
 
-        // if login is failing due to security confirming you are human,
-        // simply comment out this line that clicks and do the click manually
-        // (of course you need to not be in headless mode)
-        await sleep(Math.floor(Math.random() * 1500) + 1000);
         await pg.click(BUTTON_SELECTOR);
-        // this might help prevent the security checks checking for human
         await pg.waitForNavigation();
 
         teacherID = await pg.evaluate(() => {
@@ -265,6 +276,7 @@ async function loginCodeHS(pg) {
 
         await pg.close();
     } catch (e) {
+        console.log(e);
         if (e.toString().includes('net::ERR_NAME_NOT_RESOLVED') || e.toString().includes('net::ERR_INTERNET_DISCONNECTED')) {
             console.log(chalk.bold.red(os.EOL + 'Are you connected to the internet?' + os.EOL + 'Perhaps there is a DNS issue.'));
             process.exit();
