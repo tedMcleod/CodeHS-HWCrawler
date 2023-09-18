@@ -911,12 +911,15 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                 if (row.getElementsByTagName('a').length === 0) {
                     continue;
                 }
-                let studentName = row.getElementsByTagName('a')[0].innerText.trim();
                 let studentEmail = 'none';
                 let tds = row.getElementsByTagName('td');
+                let studentName = tds[0].innerText + ' ' + tds[1].innerText; // firstName lastName
+                //console.info("[ainfo] getting email for " + studentName);
                 for (let j = 0; j < tds.length; j++) {
+                    //console.info("[ainfo] tds = " + tds[j].innerText);
                     if (tds[j].innerText.includes('@student')) {
                         studentEmail = tds[j].innerText;
+                        break;
                     }
                 }
                 obj_studentEmail[studentName] = studentEmail;
