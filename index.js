@@ -1715,7 +1715,7 @@ async function writeStudentCodes(classObj, justMostRecent) {
         if (justMostRecent) {
             let writeQueue = [];
             classObj.students.forEach(studentObj => {
-                let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}_${studentObj.id}`;
+                let studentIdentifier = `P${classNum}_${studentObj.firstName.replaceAll(' ', '_')}-${studentObj.lastName.replaceAll(' ', '_')}_${studentObj.id}`;
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     let assignmentName = studentObj.assignments[assignmentIDs + ''].problemName;
                     if (!assignmentName.includes('--Problem Removed--')) {
@@ -1749,7 +1749,7 @@ async function writeStudentCodes(classObj, justMostRecent) {
             archive.pipe(outFile);
 
             classObj.students.forEach(studentObj => {
-                let studentIdentifier = `P${classNum}_${studentObj.firstName}-${studentObj.lastName}_${studentObj.id}`;
+                let studentIdentifier = `P${classNum}_${studentObj.firstName.replaceAll(' ', '_')}-${studentObj.lastName.replaceAll(' ', '_')}_${studentObj.id}`;
                 Object.keys(studentObj.assignments).forEach(assignmentIDs => {
                     studentObj.assignments[assignmentIDs + ''].studentCodes.forEach(submissionObject => {
                         if (submissionObject.code !== null) {
