@@ -826,19 +826,20 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
             }
 
             let arr_obj_students = [];
-            let table = document.getElementById('activity-progress-table').children[0].getElementsByClassName('student-row');
+            let studentRows = document.getElementById('activity-progress-table').getElementsByClassName('student-row');
 
-            console.info('numStudents', table.length);
-            for (let i = 0; i < table.length; i++) {
-                let student_firstName = table[i].getAttribute('data-first-name').toString();
-                let student_lastName = table[i].getAttribute('data-last-name').toString();
+            //console.info('[ainfo] numStudents' + studentRows.length);
+            for (let i = 0; i < studentRows.length; i++) {
+                let student_firstName = studentRows[i].getAttribute('data-first-name').toString();
+                let student_lastName = studentRows[i].getAttribute('data-last-name').toString();
+                //console.info("[ainfo] found student: " + student_firstName + " " + student_lastName);
                 let obj_student = {
                     firstName: student_firstName,
                     lastName: student_lastName,
                     assignments: {}
                 };
 
-                let candidate_assignments = table[i].getElementsByClassName('progress-circle');
+                let candidate_assignments = studentRows[i].getElementsByClassName('progress-circle');
                 // console.info('num student-link candidates', candidate_assignments.length);
                 for (let j = 0; j < candidate_assignments.length; j++) {
                     let refStr = candidate_assignments[j].href;
@@ -859,7 +860,7 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                 }
                 arr_obj_students.push(obj_student);
             }
-
+            //console.info("[ainfo] arr_obj_students:\n" + JSON.stringify(arr_obj_students, undefined, 2));
             return [arr_IDs, arr_obj_students];
         }, arr_assignmentsCopy);
 
