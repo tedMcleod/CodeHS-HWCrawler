@@ -469,6 +469,27 @@ async function parseSectionIDs() {
         const spinner = ora({text: `${chalk.bold('Parsing section IDs...')}`}).start();
 
         const pg = await browser.newPage();
+
+
+        pg.on('console', consoleObj => {
+            // if DEBUG is true, it will print console messages containing '[ainfo]'
+            // you can also just go to the page in question and run the code
+            // that is inside pg.evaluate() in the browser console since that is
+            // effectively what pg.evaluate() does
+            if (DEBUG && consoleObj.text().includes('[ainfo]')) {
+                console.log(consoleObj.text().replace('[ainfo]', ''))
+            }
+            if (consoleObj.text().includes('[awarning]')) {
+                console.log(chalk.yellow.bold(consoleObj.text().replace('[awarning]', '')))
+            }
+            if (consoleObj.text().includes('[aerror]')) {
+                console.log(chalk.red.bold(consoleObj.text().replace('[aerror]', '')));
+                process.exit();
+            }
+        });
+
+
+
         let teacherID;
 
         if (fs.existsSync(path.join(__dirname, 'secrets', 'teacher.json')) && require('./secrets/teacher.json') && require('./secrets/teacher.json').teacherID) {
@@ -497,13 +518,13 @@ async function parseSectionIDs() {
             for (let i = 1; i < sectionList.length; i++) {
                 let listItem = sectionList[i];
                 let sectionLink = listItem.getElementsByClassName('compact teacher-section-link')[0];
+                if (sectionLink === undefined) continue;
                 let sectionName = sectionLink.getElementsByClassName('left')[0].innerHTML;
                 let sectionPeriod = sectionName.substring(1, sectionName.indexOf(' '));
                 let sectionHrefSplit = sectionLink.href.toString().split('/');
                 let sectionId = sectionHrefSplit[sectionHrefSplit.length - 1];
                 let hrefQuestion = sectionId.indexOf('?');
                 if (hrefQuestion != -1) sectionId = sectionId.substring(0, hrefQuestion);
-
                 let sectionInfo = document.getElementsByClassName('class-list-item wrap class_' + sectionId)[0];
                 let courseId = sectionInfo.getAttribute('data-teacher-course-id').toString();
                 let coursesDropdown = document.getElementsByClassName('js-courses-menu dropdown-menu sections-dropdown')[0];
@@ -914,7 +935,7 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                 }
                 let studentEmail = 'none';
                 let tds = row.getElementsByTagName('td');
-                let studentName = tds[0].innerText + ' ' + tds[1].innerText; // firstName lastName
+                let studentName = tds[0].innerText.trim() + ' ' + tds[1].innerText.trim(); // firstName lastName
                 //console.info("[ainfo] getting email for " + studentName);
                 for (let j = 0; j < tds.length; j++) {
                     //console.info("[ainfo] tds = " + tds[j].innerText);
@@ -957,6 +978,8 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                 process.exit();
             })
         });
+
+        //console.info('\n[ainfo] obj_studentEmail = ' + JSON.stringify(obj_studentEmail, null, 4) + '\n');
 
         //calculate student grades
         obj.students = await page.evaluate(
@@ -1442,8 +1465,12 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                                             xmlTabs.send();
                                         });
                                     }
+                                    // for (let firstLast in obj_studentEmail) {
+                                    //     console.info('[ainfo] email of student: ' + firstLast + ' = ' + obj_studentEmail[firstLast] + '\n');
+                                    // }
 
                                     studentObject.email = obj_studentEmail[studentObject.firstName + ' ' + studentObject.lastName];
+                                    //console.info('[ainfo] email of student: ' + studentObject.firstName + ' ' + studentObject.lastName + ' = ' + studentObject.email);
                                     studentObject.assignments['' + key] = {
                                         problemName: problemName,
                                         firstTryDate: firstTryDate,
