@@ -1019,11 +1019,20 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
 
                 // Limits to a particular student
                 // for (let i = 0; i < arr_obj_students.length; i++) {
-                //     if (arr_obj_students[i].firstName === "Iker") {
+                //     if (arr_obj_students[i].firstName === "Justin Aaron") {
                 //         arr_obj_students = [arr_obj_students[i]];
                 //         break;
                 //     }
                 // }
+
+                // skips a particular student
+                // for (let i = 0; i < arr_obj_students.length; i++) {
+                //     if (arr_obj_students[i].firstName === "Justin Aaron") {
+                //         arr_obj_students.splice(i, 1);
+                //         break;
+                //     }
+                // }
+
                 //arr_obj_students.splice(-arr_obj_students.length/2); // remove last half
                 //arr_obj_students.splice(0, arr_obj_students.length - arr_obj_students.length/2); // remove first half
 
@@ -1141,7 +1150,13 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                                                 }
                                                 let tabKeys = Object.keys(tabs);
                                                 for (let i = 0; i < tabKeys.length; i++) {
-                                                    tabDocs[tabKeys[i]] = htmlToElement(tabs[tabKeys[i]].text);
+                                                    //console.info("[ainfo]  tab = " + tabs[tabKeys[i]].text);
+                                                    if (tabs[tabKeys[i]].text !== undefined) {
+                                                        tabDocs[tabKeys[i]] = htmlToElement(tabs[tabKeys[i]].text);
+                                                    } else {
+                                                        // Sometimes download tab is undefined, but we don't need it so... don't worry
+                                                        //console.info("[ainfo]  tab undefined: " + tabKeys[i]);
+                                                    }
                                                 }
 
                                                 let startedTimeElement = getElementByIdInDocs("started-time", tabDocs);
@@ -1154,10 +1169,10 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                                                 }
                                                 //console.info('[ainfo] (1) startedText = ' + startedText);
                                             }).catch(err => {
-                                                console.error("[aerror] err from .catch" + err.message + contextDescription);
+                                                console.error("[aerror] err from .catch " + err.message + contextDescription);
                                             });
                                         } catch (err) {
-                                            console.error("[aerror] catch err from outer try" + err.message + contextDescription);
+                                            console.error("[aerror] catch err from outer try " + err.message + contextDescription);
                                         }
                                         selectionField = getElementByIdInDocs("assignment-submission-select", tabDocs);
                                         
