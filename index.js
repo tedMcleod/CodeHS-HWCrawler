@@ -1309,7 +1309,7 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
 
                                     let numVersions = 0;
                                     let numSesh = 1;
-
+                                    let aiFlag = false;
                                     //holds all of a student's code
                                     let arr_obj_studentCodes = [];
                                     //console.info("[ainfo] getting code history " + contextDescription);
@@ -1331,9 +1331,32 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                                             }
                                             let starterCode = historyData[0].files[0].text;
                                             let versions = [];
+                                            let susAIKeywords = [
+                                                "requestAnimationFrame",
+                                                "console.log",
+                                                "context.", // students don't need to write on their own canvas directly
+                                                "cxt.", // students don't need to write on their own canvas directly
+                                                "alert(", // students would not normally use an alert
+                                                "prompt(", // students never need to ask for user input with the prompt function
+                                                "parseInt", // students never need to parse user input
+                                                "parseFloat", // students never need to parse user input
+                                                "start();", // students would never need to call start() directly, but the AI often does
+                                                "Math.random()", // students would just use Randomizer methods to do that kind of thing
+                                                "\`", // very few students use template strings
+                                                "setTimeout", // students would use setTimer and stopTimer instead of this
+                                                "setInterval", // students would use setTimer instead of this
+                                                "clearInterval(", // students would use stopTimer instead of this
+                                                "= {", // very few students use anonymous objects
+                                                "=>", // very few students use arrow functions
+                                                //" = function(", // very few students would define a function in this way (oops Duck hunt has this in starter code...)
+                                                ", function(", // few students would pass an anonymous function as a parameter
+                                                "class ", // very few students would use classes
+                                                " & " // bit manipulation
+                                            ];
                                             if (historyData.length === undefined) {
                                                 console.error("[aerror] historyData.length = " + historyData.length + contextDescription);
                                             }
+                                            
                                             for (let i = 1; i < historyData.length; i++) {
                                                 let versionData = historyData[i];
                                                 let versionDate = new Date(versionData.timestamp);
@@ -1345,17 +1368,28 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                                                     console.error("[aerror] versionData.files[0].text is not a string (versionData.files[0].text = " + versionData.files[0].text + ")" + contextDescription);
                                                 }
                                                 let versionCode = versionData.files[0].text;
-
+                                                let startAutoGrader = versionCode.indexOf("/*********************************************************************\n ***************************** KEEP OUT! *****************************");
+                                                let maxIndex = startAutoGrader === - 1 ? versionCode.length : startAutoGrader;
+                                                let codeTxt = versionCode.substring(0, maxIndex);
+                                                if (!aiFlag) {
+                                                    for (let j = 0; j < susAIKeywords.length; j++) {
+                                                        if (codeTxt.indexOf(susAIKeywords[j]) !== -1) {
+                                                            aiFlag = true;
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                
                                                 // data for calculating time worked
                                                 versions.push({
                                                     date: versionDate,
-                                                    code: versionCode
+                                                    code: codeTxt
                                                 });
 
                                                 // data for file writing
                                                 arr_obj_studentCodes.push({
                                                     editTime: versionDate.toISOString(),
-                                                    code: versionCode
+                                                    code: codeTxt
                                                 });
                                             }
 
@@ -1500,7 +1534,8 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
                                         maxPoints: 1,
                                         studentCodes: arr_obj_studentCodes,
                                         numberOfVersions: numVersions,
-                                        numberOfSessions: numSesh
+                                        numberOfSessions: numSesh,
+                                        aiFlag: aiFlag
                                     };
 
                                     res(1);
@@ -1691,7 +1726,7 @@ async function writeStudentGrades(classObj) {
         Object.keys(classObj.students[0].assignments).forEach(assignmentKey => {
             //let assignmentName = classObj.students[0].assignments[assignmentKey].problemName;
             // console.info('assignmentName' , assignmentName);
-            headers.push('Problem', 'Due', 'First Try', 'First Time', 'First Submit', 'Last Submit', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Number of Versions', 'Number of Sessions');
+            headers.push('Problem', 'Due', 'First Try', 'First Time', 'First Submit', 'Last Submit', 'Time Worked By Due Date', 'Total Time Worked', 'On Time Status', 'Problem Status', 'Number of Versions', 'Number of Sessions', 'AI Flag');
             //assignmentsStr += safePathComponent(assignmentName.toString().replaceAll(' ', '-') + '_');
         });
         outPath = path.join(outPath, assignment_name).trim() + '_' + dateStrRN.replaceAll('/', '-') + '.csv';
@@ -1729,6 +1764,7 @@ async function writeStudentGrades(classObj) {
                 studentRow.push(studentObj.assignments[assignmentIDs].problemStatus);
                 studentRow.push(studentObj.assignments[assignmentIDs].numberOfVersions);
                 studentRow.push(studentObj.assignments[assignmentIDs].numberOfSessions);
+                studentRow.push(studentObj.assignments[assignmentIDs].aiFlag);
             });
 
             studentRow.push(studentObj.totalPoints);
