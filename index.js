@@ -262,13 +262,21 @@ async function loginCodeHS(pg) {
         await pg.click(PASSWORD_SELECTOR);
         await pg.keyboard.type(sessionData['password']);
 
-        await pg.click(BUTTON_SELECTOR);
-        await pg.waitForNavigation();
+        // wait for navigation and click have a potential race condition, so make sure
+        // they are grouped
+        await Promise.all([
+          pg.waitForNavigation(),
+          pg.click(BUTTON_SELECTOR),
+        ]);
+        //console.log("Navigation done");
 
         teacherID = await pg.evaluate(() => {
-            let urlSplit = window.location.href.toString().split('/');
-            return urlSplit[urlSplit.length - 1];
+            // getting the teacher ID from the dropdown menu of sections.
+            //console.log("finding teacherId");
+            return window.document.getElementsByClassName("js-courses-menu")[0].children[0].children[0].href.split("/")[4];
         });
+
+        //console.log("teacherID = " + teacherID);
 
         warningsLength = await pg.evaluate(() => {
             return document.getElementsByClassName('form-alert-red').length;
