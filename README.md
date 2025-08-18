@@ -4,7 +4,10 @@ This is a [NodeJS](https://nodejs.org/) tool using the [Puppeteer](https://devel
 
 ## Installation
 
-### Preferred Method
+### NPM Method
+
+**This is deprecated since it will install an old version of this program that may not work anymore.**
+
 Use the package manager [npm](https://www.npmjs.com/) to install CodeHS Crawler.
 
 ```bash
@@ -15,7 +18,7 @@ npm install codehs_grades
 ### Alternative(Repo) Method
 Clone this repository.
 ```bash
-git clone https://github.com/e-zhang09/CodeHS-HWCrawler.git
+git clone https://github.com/tedMcleod/CodeHS-HWCrawler.git
 cd CodeHS-HWCrawler
 npm link
 ```
@@ -25,6 +28,12 @@ npm link
 
 ```bash
 codehs_grades
+```
+
+## Using the latest version of chrome
+If you want to use the latest chrome browser predownloaded in your project directory instead of the default, you can run:
+```bash
+npx @puppeteer/browsers install chrome@stable
 ```
 
 ## Grading Method

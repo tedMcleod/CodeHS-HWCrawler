@@ -7,7 +7,6 @@ const prompts = require('prompts'),
     fs = require('fs'),
     path = require('path'),
     puppeteer = require('puppeteer'),
-    {TimeoutError} = require('puppeteer/Errors'),
     format = require('string-format'),
     links = require('./templates/links'),
     pLimit = require('p-limit'),
@@ -779,7 +778,7 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
             spinner.text = chalk.bold(`[${obj.teacherName + '_P' + obj.classNum}] Preparing... (Loading all assignments and IDs from cache)`);
         }
         await page.goto(url_sectionAllModule, pageGoOptions).catch(errObj => {
-            if (errObj.name !== 'TimeoutError') {
+            if (!(errObj instanceof puppeteer.TimeoutError)) {
                 console.info(os.EOL + chalk.bold.red('Unknown error: ', errObj));
                 console.info(chalk.bold.yellow('Please open an issue in this ' + terminalLink('repo', 'https://github.com/e-zhang09/CodeHS-HWCrawler')));
                 process.exit();

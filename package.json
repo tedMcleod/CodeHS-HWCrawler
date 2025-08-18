@@ -12,12 +12,11 @@
     "ora": "^4.0.3",
     "p-limit": "^2.2.1",
     "prompts": "^2.3.0",
-    "puppeteer": "^2.0.0",
+    "puppeteer": "24.16.2",
     "string-format": "^2.0.0",
     "terminal-link": "^2.1.1",
     "validator": "^12.1.0"
   },
-  "devDependencies": {},
   "scripts": {
     "start": "node index.js"
   },
