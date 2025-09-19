@@ -820,8 +820,8 @@ async function parseClassPages(obj, arr_objs_classes, browser, spinner) {
             let arr_IDs = [];
             let children_possibleNodes = document.getElementsByClassName('activity-item');
             for (let i = 0; i < children_possibleNodes.length; i++) {
-                if (children_possibleNodes[i].getAttribute('data-original-title')) {
-                    let str = children_possibleNodes[i].getAttribute('data-original-title').toLowerCase();
+                if (children_possibleNodes[i].getAttribute('title')) {
+                    let str = children_possibleNodes[i].getAttribute('title').toLowerCase();
                     str = str.slice(0, str.lastIndexOf(":")); //remove the status that follows the problem name
 
                     for (let j = 0; j < arr_assignmentsCopy.length; j++) {
